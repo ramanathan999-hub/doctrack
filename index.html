@@ -164,33 +164,27 @@ const SEED_USERS=[
   {id:"u3",name:"James Okafor",username:"james",password:"james",email:"james@doctrack.io",role:"viewer",active:true,created:"2025-03-01"}
 ];
 
+function mkDocs(s){
+  return["d01","d02","d03","d04","d05","d06","d07","d08","d09","d10","d11","d12","d13","d14","d15","d16","d17","d18","d19"]
+    .map((id,i)=>({docId:id,status:s[i]||"Pending",source:null,receivedAt:null,notes:""}));
+}
 const SEED_ORDERS=[
-  {id:"ORD-001",customer:"Meridian Trading Co.",ref:"MTC-2025-44",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-01",dueDate:"2025-05-20",orderStatus:"In Progress",documents:[
-    {docId:"ot1d1",status:"Verified",source:"Email",receivedAt:"2025-05-02",notes:""},
-    {docId:"ot1d2",status:"Received",source:"Portal Upload",receivedAt:"2025-05-03",notes:""},
-    {docId:"ot1d3",status:"Pending",source:null,receivedAt:null,notes:""},
-    {docId:"ot1d4",status:"Waived",source:null,receivedAt:null,notes:"Customer exempt"},
-    {docId:"ot1d5",status:"Pending",source:null,receivedAt:null,notes:""}
-  ]},
-  {id:"ORD-002",customer:"Atlas Exports GmbH",ref:"AEG-2025-12",orderTypeId:"ot2",assignedTo:"u2",createdAt:"2025-05-03",dueDate:"2025-05-25",orderStatus:"In Progress",documents:[
-    {docId:"ot2d1",status:"Verified",source:"API / System",receivedAt:"2025-05-04",notes:""},
-    {docId:"ot2d2",status:"Rejected",source:"Email",receivedAt:"2025-05-05",notes:"Missing signature"},
-    {docId:"ot2d3",status:"Pending",source:null,receivedAt:null,notes:""}
-  ]},
-  {id:"ORD-003",customer:"Pacific Rim Holdings",ref:"PRH-2025-07",orderTypeId:"ot3",assignedTo:"u2",createdAt:"2025-04-28",dueDate:"2025-05-15",orderStatus:"Complete",documents:[
-    {docId:"ot3d1",status:"Verified",source:"Email",receivedAt:"2025-04-29",notes:""},
-    {docId:"ot3d2",status:"Verified",source:"Physical / Scanned",receivedAt:"2025-04-30",notes:""},
-    {docId:"ot3d3",status:"Verified",source:"Portal Upload",receivedAt:"2025-05-01",notes:""},
-    {docId:"ot3d4",status:"Verified",source:"Email",receivedAt:"2025-05-01",notes:""},
-    {docId:"ot3d5",status:"Waived",source:null,receivedAt:null,notes:""}
-  ]},
-  {id:"ORD-004",customer:"Centauri Logistics",ref:"CL-2025-55",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-07",dueDate:"2025-05-30",orderStatus:"New",documents:[
-    {docId:"ot1d1",status:"Pending",source:null,receivedAt:null,notes:""},
-    {docId:"ot1d2",status:"Pending",source:null,receivedAt:null,notes:""},
-    {docId:"ot1d3",status:"Pending",source:null,receivedAt:null,notes:""},
-    {docId:"ot1d4",status:"Pending",source:null,receivedAt:null,notes:""},
-    {docId:"ot1d5",status:"Pending",source:null,receivedAt:null,notes:""}
-  ]}
+  {id:"ORD-001",customer:"Meridian Trading Co.",ref:"MTC-2025-44",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-01",dueDate:"2025-05-20",orderStatus:"In Progress",
+    documents:mkDocs(["Verified","Verified","Received","Pending","Verified","Pending","Pending","Waived","Received","Pending","Pending","Verified","Waived","Pending","Pending","Pending","Verified","Pending","Verified"])},
+  {id:"ORD-002",customer:"Atlas Exports GmbH",ref:"AEG-2025-12",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-03",dueDate:"2025-05-25",orderStatus:"In Progress",
+    documents:mkDocs(["Verified","Verified","Verified","Pending","Verified","Verified","Verified","Pending","Verified","Rejected","Pending","Verified","Pending","Received","Pending","Pending","Verified","Verified","Verified"])},
+  {id:"ORD-003",customer:"Pacific Rim Holdings",ref:"PRH-2025-07",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-04-28",dueDate:"2025-05-15",orderStatus:"Complete",
+    documents:mkDocs(["Verified","Verified","Verified","Verified","Verified","Verified","Verified","Waived","Verified","Verified","Verified","Verified","Waived","Verified","Verified","Verified","Verified","Verified","Verified"])},
+  {id:"ORD-004",customer:"Centauri Logistics",ref:"CL-2025-55",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-07",dueDate:"2025-05-30",orderStatus:"New",
+    documents:mkDocs([])},
+  {id:"ORD-005",customer:"Helios Chemicals BV",ref:"HC-2025-33",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-08",dueDate:"2025-05-22",orderStatus:"On Hold",
+    documents:mkDocs(["Received","Pending","Pending","Pending","Verified","Pending","Pending","Pending","Pending","Pending","Pending","Rejected","Waived","Pending","Pending","Pending","Received","Pending","Pending"])},
+  {id:"ORD-006",customer:"Global Agro Ltd",ref:"GA-2025-18",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-04-20",dueDate:"2025-05-10",orderStatus:"Complete",
+    documents:mkDocs(["Verified","Verified","Verified","Verified","Verified","Verified","Verified","Waived","Verified","Verified","Verified","Verified","Waived","Verified","Verified","Verified","Verified","Verified","Verified"])},
+  {id:"ORD-007",customer:"Nexus Trade Partners",ref:"NTP-2025-09",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-10",dueDate:"2025-06-01",orderStatus:"In Progress",
+    documents:mkDocs(["Received","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending","Pending"])},
+  {id:"ORD-008",customer:"Amber Freight Solutions",ref:"AF-2025-71",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-11",dueDate:"2025-06-05",orderStatus:"New",
+    documents:mkDocs([])},
 ];
 
 /* ── Config ── */
@@ -359,8 +353,14 @@ function Dashboard({onNav}){
         sb.from('orders').select('*',{count:'exact',head:true}).eq('ready_to_ship',false),
         sb.from('orders').select('order_number,customer_name,destination_country,status,progress_pct').order('created_at',{ascending:false}).limit(5)
       ]);
-      setStats({total:a.count||0,inProgress:b.count||0,complete:c.count||0,missingDocs:d.count||0,loading:false});
-      setRecent(e.data||[]);
+      if((a.count||0)===0){
+        const missingDocs=SEED_ORDERS.filter(o=>{const ot=SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId);if(!ot)return false;const req=ot.docs.filter(d=>d.required).map(d=>d.id);return o.documents.some(d=>req.includes(d.docId)&&d.status!=="Verified"&&d.status!=="Waived");}).length;
+        setStats({total:SEED_ORDERS.length,inProgress:SEED_ORDERS.filter(o=>o.orderStatus==="In Progress").length,complete:SEED_ORDERS.filter(o=>o.orderStatus==="Complete").length,missingDocs,loading:false});
+        setRecent(SEED_ORDERS.slice(0,5).map(o=>({order_number:o.id,customer_name:o.customer,destination_country:null,status:o.orderStatus,progress_pct:getProgress(o,SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId)).pct})));
+      } else {
+        setStats({total:a.count||0,inProgress:b.count||0,complete:c.count||0,missingDocs:d.count||0,loading:false});
+        setRecent(e.data||[]);
+      }
     }
     load();
   },[]);
@@ -415,7 +415,8 @@ function OrdersList({onSelect}){
       const{data}=await sb.from('orders')
         .select('order_number,customer_name,destination_country,status,progress_pct')
         .order('created_at',{ascending:false});
-      setOrders(data||[]);
+      if(data&&data.length>0){setOrders(data);}
+      else{setOrders(SEED_ORDERS.map(o=>({order_number:o.id,customer_name:o.customer,destination_country:null,status:o.orderStatus,progress_pct:getProgress(o,SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId)).pct})));}
       setLoading(false);
     }
     load();
@@ -468,12 +469,59 @@ function OrdersList({onSelect}){
   );
 }
 
-function OrderDetail({order,orderTypes,users,currentUser,onUpdate,onUpdateDoc,onBack}){
-  const ot=orderTypes.find(t=>t.id===order.orderTypeId);
-  const{done,total,pct}=getProgress(order,ot);
-  const assigned=users.find(u=>u.id===order.assignedTo);
+function OrderDetail({orderId,currentUser,onBack,showToast}){
+  const[order,setOrder]=useState(null);
+  const[items,setItems]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[isSeed,setIsSeed]=useState(false);
+  const[editId,setEditId]=useState(null);
+  const[editStatus,setEditStatus]=useState('');
+  const[editNotes,setEditNotes]=useState('');
   const ro=!canEdit(currentUser.role);
-  const[editDoc,setEditDoc]=useState(null);
+
+  useEffect(()=>{load();},[orderId]);
+
+  async function load(){
+    setLoading(true);
+    const{data:sbOrder}=await sb.from('orders').select('*').eq('order_number',orderId).maybeSingle();
+    if(sbOrder){
+      const{data:sbItems}=await sb.from('checklist_items').select('*').eq('order_number',orderId).order('category');
+      setOrder(sbOrder);setItems(sbItems||[]);setIsSeed(false);
+    } else {
+      const seed=SEED_ORDERS.find(o=>o.id===orderId);
+      if(seed){
+        const ot=SEED_ORDER_TYPES.find(t=>t.id===seed.orderTypeId);
+        setOrder({order_number:seed.id,customer_name:seed.customer,destination_country:null,status:seed.orderStatus,progress_pct:ot?getProgress(seed,ot).pct:0,created_at:seed.createdAt,due_date:seed.dueDate,ref:seed.ref});
+        setItems(ot?ot.docs.map(def=>{const ds=seed.documents.find(d=>d.docId===def.id)||{status:"Pending",notes:""};return{id:def.id,doc_type:def.name,category:def.category||"—",condition:def.required?"Always":"Conditional",status:ds.status,notes:ds.notes||""};}):[]);
+        setIsSeed(true);
+      }
+    }
+    setLoading(false);
+  }
+
+  function startEdit(item){setEditId(item.id);setEditStatus(item.status||'Pending');setEditNotes(item.notes||'');}
+
+  async function saveOverride(item){
+    const patch={status:editStatus,notes:editNotes};
+    if(!isSeed){await sb.from('checklist_items').update(patch).eq('id',item.id);}
+    setItems(p=>p.map(i=>i.id===item.id?{...i,...patch}:i));
+    setEditId(null);showToast('Document updated');
+  }
+
+  async function submitDoc(item){
+    if(!isSeed){await sb.from('checklist_items').update({status:'Received'}).eq('id',item.id);}
+    setItems(p=>p.map(i=>i.id===item.id?{...i,status:'Received'}:i));
+    showToast('Document submitted');
+  }
+
+  if(loading)return<div style={{padding:40,textAlign:'center',color:'#94a3b8'}}>Loading&#x2026;</div>;
+  if(!order)return<div style={{padding:40,textAlign:'center',color:'#94a3b8'}}>Order not found.</div>;
+
+  const reqItems=items.filter(i=>i.condition==='Always');
+  const reqDone=reqItems.filter(i=>i.status==='Verified'||i.status==='Waived').length;
+  const reqTotal=reqItems.length||items.length;
+  const pct=reqTotal>0?Math.round(reqDone/reqTotal*100):(order.progress_pct||0);
+
   return(
     <div>
       <button className="dt-back-btn" onClick={onBack}><i className="ti ti-arrow-left"/> Back to orders</button>
@@ -481,32 +529,24 @@ function OrderDetail({order,orderTypes,users,currentUser,onUpdate,onUpdateDoc,on
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-              <span className="mono" style={{fontSize:12,color:"#2563eb"}}>{order.id}</span>
-              <Badge label={order.orderStatus} cfg={ORDER_BADGE}/>
-              {ot&&<span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#64748b"}}><span style={{width:8,height:8,borderRadius:"50%",background:ot.color}}/>{ot.name}</span>}
+              <span className="mono" style={{fontSize:12,color:"#2563eb"}}>{order.order_number}</span>
+              <Badge label={order.status||"New"} cfg={ORDER_BADGE}/>
             </div>
-            <div style={{fontSize:18,fontWeight:500,color:"#0f172a",marginBottom:8}}>{order.customer}</div>
+            <div style={{fontSize:18,fontWeight:500,color:"#0f172a",marginBottom:6}}>{order.customer_name}</div>
             <div className="dt-order-meta">
-              <span><i className="ti ti-hash"/>{order.ref}</span>
-              <span><i className="ti ti-calendar"/>Created {order.createdAt}</span>
-              <span><i className="ti ti-clock"/>Due {order.dueDate}</span>
-              {assigned&&<span><i className="ti ti-user"/>{assigned.name}</span>}
+              {order.ref&&<span><i className="ti ti-hash"/>{order.ref}</span>}
+              {order.destination_country&&<span><i className="ti ti-map-pin"/>{order.destination_country}</span>}
+              {order.incoterms&&<span><i className="ti ti-tag"/>{order.incoterms}</span>}
+              {order.created_at&&<span><i className="ti ti-calendar"/>Created {String(order.created_at).slice(0,10)}</span>}
+              {order.due_date&&<span><i className="ti ti-clock"/>Due {order.due_date}</span>}
             </div>
           </div>
           <div style={{textAlign:"right",flexShrink:0}}>
             <div style={{fontSize:11,color:"#64748b",marginBottom:3}}>Required docs complete</div>
-            <div style={{fontSize:24,fontWeight:500,color:pct===100?"#15803d":"#0f172a"}}>{done}/{total}</div>
+            <div style={{fontSize:24,fontWeight:500,color:pct===100?"#15803d":"#0f172a"}}>{reqDone}/{reqTotal}</div>
             <Progress pct={pct}/>
           </div>
         </div>
-        {!ro&&(
-          <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #f1f5f9",display:"flex",gap:8,alignItems:"center"}}>
-            <span style={{fontSize:12,color:"#64748b"}}>Order status:</span>
-            <select value={order.orderStatus} onChange={e=>onUpdate({orderStatus:e.target.value})} style={{width:"auto",fontSize:12,padding:"4px 8px"}}>
-              {ORDER_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-        )}
       </div>
       <div className="dt-card">
         <div className="dt-section-hdr">
@@ -514,41 +554,56 @@ function OrderDetail({order,orderTypes,users,currentUser,onUpdate,onUpdateDoc,on
           {ro&&<span className="dt-ro-label"><i className="ti ti-eye"/>Read-only</span>}
         </div>
         <table className="dt-table">
-          <thead><tr>{["Document","Category","Required","Status","Source","Received","Notes",ro?"":""].map((h,i)=><th key={i} className="dt-th">{h}</th>)}</tr></thead>
+          <thead><tr>
+            <th className="dt-th">Category</th>
+            <th className="dt-th">Document</th>
+            <th className="dt-th">Condition</th>
+            <th className="dt-th">Status</th>
+            {!ro&&<th className="dt-th">Actions</th>}
+          </tr></thead>
           <tbody>
-            {ot&&ot.docs.map((def,i)=>{
-              const ds=order.documents.find(d=>d.docId===def.id)||{status:"Pending",source:null,receivedAt:null,notes:""};
-              const editing=editDoc===def.id;
-              const last=i===ot.docs.length-1;
-              return(
-                <tr key={def.id} className={`${editing?"dt-edit-row":""}${last?" dt-tr-last":""}`}>
-                  <td className="dt-td" style={{fontWeight:500}}>{def.name}</td>
-                  <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{def.category||"—"}</td>
-                  <td className="dt-td">
-                    {def.required
-                      ?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>
-                      :<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}
-                  </td>
-                  {editing?(
-                    <>
-                      <td className="dt-td"><select value={ds.status} onChange={e=>onUpdateDoc(def.id,{status:e.target.value})} style={{width:110}}>{DOC_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></td>
-                      <td className="dt-td"><select value={ds.source||""} onChange={e=>onUpdateDoc(def.id,{source:e.target.value||null})} style={{width:140}}><option value="">—</option>{SOURCES.map(s=><option key={s} value={s}>{s}</option>)}</select></td>
-                      <td className="dt-td"><input type="date" value={ds.receivedAt||""} onChange={e=>onUpdateDoc(def.id,{receivedAt:e.target.value||null})} style={{width:140}}/></td>
-                      <td className="dt-td"><input value={ds.notes} onChange={e=>onUpdateDoc(def.id,{notes:e.target.value})} placeholder="Notes&#x2026;" style={{width:"100%"}}/></td>
-                      <td className="dt-td"><button onClick={()=>setEditDoc(null)} style={{display:"flex",alignItems:"center",gap:4,fontSize:12}}><i className="ti ti-check"/>Done</button></td>
-                    </>
-                  ):(
-                    <>
-                      <td className="dt-td"><Badge label={ds.status} cfg={DOC_BADGE}/></td>
-                      <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{ds.source||"—"}</td>
-                      <td className="dt-td mono" style={{fontSize:11,color:"#94a3b8"}}>{ds.receivedAt||"—"}</td>
-                      <td className="dt-td" style={{fontSize:12,color:"#64748b",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ds.notes||"—"}</td>
-                      {!ro&&<td className="dt-td"><button onClick={()=>setEditDoc(def.id)} style={{display:"flex",alignItems:"center",gap:4,fontSize:12}}><i className="ti ti-pencil"/>Edit</button></td>}
-                    </>
-                  )}
-                </tr>
-              );
-            })}
+            {items.length===0
+              ?<tr><td colSpan={5} style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>No documents found</td></tr>
+              :items.map((item,i)=>{
+                const last=i===items.length-1;
+                const editing=editId===item.id;
+                return(
+                  <tr key={item.id} className={last?"dt-tr-last":""} style={editing?{background:"#fafafa"}:{}}>
+                    <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{item.category||"—"}</td>
+                    <td className="dt-td" style={{fontWeight:500}}>{item.doc_type}</td>
+                    <td className="dt-td" style={{fontSize:11,color:"#94a3b8"}}>{item.condition||"—"}</td>
+                    <td className="dt-td">
+                      {editing
+                        ?<select value={editStatus} onChange={e=>setEditStatus(e.target.value)} style={{width:110,fontSize:12,padding:"4px 7px"}}>
+                          {DOC_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                        </select>
+                        :<Badge label={item.status||"Pending"} cfg={DOC_BADGE}/>
+                      }
+                    </td>
+                    {!ro&&<td className="dt-td">
+                      {editing?(
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          <input value={editNotes} onChange={e=>setEditNotes(e.target.value)} placeholder="Notes&#x2026;" style={{fontSize:11,padding:"3px 6px",width:130}}/>
+                          <button onClick={()=>saveOverride(item)} className="dt-btn-primary" style={{fontSize:11,padding:"4px 10px"}}>Save</button>
+                          <button onClick={()=>setEditId(null)} style={{fontSize:11,padding:"4px 10px"}}>Cancel</button>
+                        </div>
+                      ):(
+                        <div style={{display:"flex",gap:6}}>
+                          <button onClick={()=>startEdit(item)} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4}}>
+                            <i className="ti ti-pencil"/>Override
+                          </button>
+                          {item.status!=="Verified"&&item.status!=="Waived"&&(
+                            <button onClick={()=>submitDoc(item)} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4,background:"#dbeafe",borderColor:"#bfdbfe",color:"#1d4ed8"}}>
+                              <i className="ti ti-send"/>Submit
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>}
+                  </tr>
+                );
+              })
+            }
           </tbody>
         </table>
       </div>
@@ -609,18 +664,18 @@ function TypesView({orderTypes,onAddDoc}){
           {expanded===ot.id&&(
             <div style={{borderTop:"1px solid #f1f5f9"}}>
               <table className="dt-table">
-                <thead><tr><th className="dt-th">Document</th><th className="dt-th">Category</th><th className="dt-th">Required</th></tr></thead>
+                <thead><tr><th className="dt-th">Category</th><th className="dt-th">Document</th><th className="dt-th">Required</th></tr></thead>
                 <tbody>
                   {ot.docs.map((d,i)=>(
                     <tr key={d.id} className={i===ot.docs.length-1?"dt-tr-last":""}>
-                      <td className="dt-td">{d.name}</td>
                       <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{d.category||"—"}</td>
+                      <td className="dt-td">{d.name}</td>
                       <td className="dt-td">{d.required?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>:<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}</td>
                     </tr>
                   ))}
                   <tr style={{background:"#fafafa"}}>
-                    <td className="dt-td"><input value={docName} onChange={e=>setDocName(e.target.value)} placeholder="Add document&#x2026;" style={{fontSize:12,width:"90%"}}/></td>
                     <td className="dt-td"><input value={docCat} onChange={e=>setDocCat(e.target.value)} placeholder="Category&#x2026;" style={{fontSize:12,width:"90%"}}/></td>
+                    <td className="dt-td"><input value={docName} onChange={e=>setDocName(e.target.value)} placeholder="Add document&#x2026;" style={{fontSize:12,width:"90%"}}/></td>
                     <td className="dt-td" style={{display:"flex",alignItems:"center",gap:8,borderBottom:"none"}}>
                       <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#64748b",cursor:"pointer",whiteSpace:"nowrap"}}>
                         <input type="checkbox" checked={docReq} onChange={e=>setDocReq(e.target.checked)} style={{width:"auto"}}/> Required
@@ -719,8 +774,7 @@ function App(){
 
   if(!user) return <Login users={users} onLogin={login}/>;
 
-  const selOrder=orders.find(o=>o.id===orderId);
-  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":selOrder?`${selOrder.id} — ${selOrder.customer}`:"Order detail",users:"User management",types:"Order types"};
+  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types"};
 
   return(
     <div className="dt-app">
@@ -737,12 +791,8 @@ function App(){
         <div className="dt-content">
           {view==="dashboard"&&<Dashboard onNav={(v,id)=>nav(v,id)}/>}
           {view==="orders"&&<OrdersList onSelect={id=>nav("order-detail",id)}/>}
-          {view==="order-detail"&&selOrder&&(
-            <OrderDetail order={selOrder} orderTypes={orderTypes} users={users} currentUser={user}
-              onUpdate={patch=>{setOrders(p=>p.map(o=>o.id===selOrder.id?{...o,...patch}:o));showToast("Order updated");}}
-              onUpdateDoc={(docId,patch)=>{setOrders(p=>p.map(o=>o.id===selOrder.id?{...o,documents:o.documents.map(d=>d.docId===docId?{...d,...patch}:d)}:o));showToast("Document saved");}}
-              onBack={()=>nav("orders")}
-            />
+          {view==="order-detail"&&orderId&&(
+            <OrderDetail orderId={orderId} currentUser={user} showToast={showToast} onBack={()=>nav("orders")}/>
           )}
           {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
           {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}}/>}
