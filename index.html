@@ -319,6 +319,8 @@ function Sidebar({user,view,onNav,onLogout}){
         <div className="dt-nav-section">Main</div>
         {item("ti-layout-dashboard","Dashboard","dashboard")}
         {item("ti-clipboard-list","Orders","orders")}
+        <div className="dt-nav-section" style={{marginTop:8}}>Tools</div>
+        {item("ti-building","KVK Search","kvk-search")}
         {canAdmin(user.role)&&<>
           <div className="dt-nav-section" style={{marginTop:8}}>Admin</div>
           {item("ti-users","Users","users")}
@@ -756,6 +758,79 @@ function CreateTypeModal({onClose,onCreate}){
   );
 }
 
+function KVKSearch(){
+  const[q,setQ]=useState("");
+  const[results,setResults]=useState(null);
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState(null);
+
+  async function doSearch(){
+    if(!q.trim())return;
+    setLoading(true);setError(null);setResults(null);
+    try{
+      const res=await fetch(`https://ramanathan999.app.n8n.cloud/webhook/kvk-search?naam=${encodeURIComponent(q.trim())}`);
+      if(!res.ok)throw new Error(`Server returned ${res.status}`);
+      const data=await res.json();
+      setResults(data);
+    }catch(e){setError(e.message||"Search failed");}
+    setLoading(false);
+  }
+
+  const bedrijven=results?.bedrijven||[];
+  return(
+    <div>
+      <div className="dt-filters" style={{marginBottom:16}}>
+        <div className="dt-search-wrap">
+          <i className="ti ti-search dt-search-icon"/>
+          <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doSearch()} placeholder="Search company name&#x2026;"/>
+        </div>
+        <button onClick={doSearch} className="dt-btn-primary" style={{whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:5}}>
+          <i className="ti ti-building-store"/>Search KVK
+        </button>
+      </div>
+      {error&&<div style={{padding:"12px 16px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,color:"#b91c1c",fontSize:13,marginBottom:16}}><i className="ti ti-alert-circle"/> {error}</div>}
+      {loading&&<div style={{padding:"40px 0",textAlign:"center",color:"#94a3b8",fontSize:13}}>Searching&#x2026;</div>}
+      {!loading&&results&&(
+        <div className="dt-card">
+          <div className="dt-section-hdr">{bedrijven.length>0?`${results.totaalResultaten??bedrijven.length} result${results.totaalResultaten!==1?"s":""}  — showing first ${bedrijven.length}`:"No results found"}</div>
+          {bedrijven.length>0&&(
+            <table className="dt-table">
+              <thead><tr>
+                <th className="dt-th">Company name</th>
+                <th className="dt-th">KVK number</th>
+                <th className="dt-th">Address</th>
+                <th className="dt-th">Type</th>
+              </tr></thead>
+              <tbody>
+                {bedrijven.map((b,i)=>{
+                  const addr=b.adres||b.bezoekadres||b.postadres||{};
+                  const street=[addr.straatnaam||addr.straat||"",addr.huisnummer||""].filter(Boolean).join(" ");
+                  const addrStr=[street,addr.postcode||"",addr.plaats||addr.plaatsnaam||""].filter(Boolean).join(", ");
+                  return(
+                    <tr key={i} className={i===bedrijven.length-1?"dt-tr-last":""}>
+                      <td className="dt-td" style={{fontWeight:500}}>{b.naam||b.handelsnaam||"&#x2014;"}</td>
+                      <td className="dt-td mono" style={{fontSize:12,color:"#2563eb"}}>{b.kvkNummer||"&#x2014;"}</td>
+                      <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{addrStr||"&#x2014;"}</td>
+                      <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{b.type||b.rechtsvorm||"&#x2014;"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+      {!loading&&!results&&!error&&(
+        <div style={{padding:"60px 0",textAlign:"center"}}>
+          <i className="ti ti-building" style={{fontSize:42,color:"#e2e8f0",display:"block",marginBottom:12}}/>
+          <div style={{fontSize:13,color:"#94a3b8"}}>Enter a company name to search the KVK Handelsregister</div>
+          <div style={{fontSize:11,color:"#cbd5e1",marginTop:6}}>Powered by KVK test API via N8N</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Main App ── */
 function App(){
   const[user,setUser]=useState(null);
@@ -774,7 +849,7 @@ function App(){
 
   if(!user) return <Login users={users} onLogin={login}/>;
 
-  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types"};
+  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","kvk-search":"KVK Company Search"};
 
   return(
     <div className="dt-app">
@@ -794,6 +869,7 @@ function App(){
           {view==="order-detail"&&orderId&&(
             <OrderDetail orderId={orderId} currentUser={user} showToast={showToast} onBack={()=>nav("orders")}/>
           )}
+          {view==="kvk-search"&&<KVKSearch/>}
           {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
           {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}}/>}
         </div>
