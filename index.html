@@ -120,11 +120,13 @@ button:hover{background:#f8fafc}
 <body>
 <div id="root"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script type="text/babel">
 const {useState,useEffect}=React;
+const sb=window.supabase.createClient('https://syorwcsahfxbemvwdxrz.supabase.co','sb_publishable_S6_L3SlyflJLJ85IbCPwFA_G6ZKA8e_');
 
 /* ── Seed data ── */
 const SOURCES=["Email","Portal Upload","Physical / Scanned","API / System"];
@@ -343,45 +345,57 @@ function Sidebar({user,view,onNav,onLogout}){
   );
 }
 
-function Dashboard({orders,orderTypes,onNav}){
-  const total=orders.length;
-  const complete=orders.filter(o=>o.orderStatus==="Complete").length;
-  const inProg=orders.filter(o=>o.orderStatus==="In Progress").length;
-  const pendDocs=orders.reduce((a,o)=>a+o.documents.filter(d=>d.status==="Pending").length,0);
-  const recent=[...orders].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,5);
+function Dashboard({onNav}){
+  const[stats,setStats]=useState({total:0,inProgress:0,complete:0,missingDocs:0,loading:true});
+  const[recent,setRecent]=useState([]);
+  useEffect(()=>{
+    async function load(){
+      const[a,b,c,d,e]=await Promise.all([
+        sb.from('orders').select('*',{count:'exact',head:true}),
+        sb.from('orders').select('*',{count:'exact',head:true}).eq('status','In Progress'),
+        sb.from('orders').select('*',{count:'exact',head:true}).eq('status','Complete'),
+        sb.from('orders').select('*',{count:'exact',head:true}).eq('ready_to_ship',false),
+        sb.from('orders').select('order_number,customer_name,destination_country,status,progress_pct').order('created_at',{ascending:false}).limit(5)
+      ]);
+      setStats({total:a.count||0,inProgress:b.count||0,complete:c.count||0,missingDocs:d.count||0,loading:false});
+      setRecent(e.data||[]);
+    }
+    load();
+  },[]);
   return(
     <div>
       <div className="dt-stat-grid">
         {[
-          {label:"Total orders",val:total,icon:"ti-clipboard-list",color:"#0f172a"},
-          {label:"In progress",val:inProg,icon:"ti-clock",color:"#1d4ed8"},
-          {label:"Complete",val:complete,icon:"ti-check",color:"#15803d"},
-          {label:"Pending docs",val:pendDocs,icon:"ti-file-alert",color:"#b45309"}
+          {label:"Total orders",val:stats.total,icon:"ti-clipboard-list",color:"#0f172a"},
+          {label:"In progress",val:stats.inProgress,icon:"ti-clock",color:"#1d4ed8"},
+          {label:"Complete",val:stats.complete,icon:"ti-check",color:"#15803d"},
+          {label:"Missing docs",val:stats.missingDocs,icon:"ti-file-alert",color:"#b45309"}
         ].map(s=>(
           <div key={s.label} className="dt-stat">
             <div className="dt-stat-label"><i className={`ti ${s.icon}`}/> {s.label}</div>
-            <div className="dt-stat-val" style={{color:s.color}}>{s.val}</div>
+            <div className="dt-stat-val" style={{color:s.color}}>{stats.loading?"—":s.val}</div>
           </div>
         ))}
       </div>
       <div className="dt-card">
         <div className="dt-section-hdr">Recent orders</div>
         <table className="dt-table">
-          <thead><tr>{["Order","Customer","Type","Progress","Status"].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
+          <thead><tr>{["Order","Customer","Destination","Progress","Status"].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
           <tbody>
-            {recent.map((o,i)=>{
-              const ot=orderTypes.find(t=>t.id===o.orderTypeId);
-              const{pct}=getProgress(o,ot);
-              return(
-                <tr key={o.id} className={`dt-tr-click${i===recent.length-1?" dt-tr-last":""}`} onClick={()=>onNav("order-detail",o.id)}>
-                  <td className="dt-td mono" style={{fontSize:12,color:"#2563eb"}}>{o.id}</td>
-                  <td className="dt-td" style={{fontWeight:500}}>{o.customer}</td>
-                  <td className="dt-td">{ot&&<span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#64748b"}}><span style={{width:7,height:7,borderRadius:"50%",background:ot.color,flexShrink:0}}/>{ot.name}</span>}</td>
-                  <td className="dt-td"><Progress pct={pct}/></td>
-                  <td className="dt-td"><Badge label={o.orderStatus} cfg={ORDER_BADGE}/></td>
-                </tr>
-              );
-            })}
+            {stats.loading
+              ?<tr><td colSpan={5} style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>Loading&#x2026;</td></tr>
+              :recent.length===0
+                ?<tr><td colSpan={5} style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>No orders yet</td></tr>
+                :recent.map((o,i)=>(
+                  <tr key={o.order_number} className={`dt-tr-click${i===recent.length-1?" dt-tr-last":""}`} onClick={()=>onNav("orders")}>
+                    <td className="dt-td mono" style={{fontSize:12,color:"#2563eb"}}>{o.order_number}</td>
+                    <td className="dt-td" style={{fontWeight:500}}>{o.customer_name}</td>
+                    <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{o.destination_country||"&#x2014;"}</td>
+                    <td className="dt-td"><Progress pct={o.progress_pct||0}/></td>
+                    <td className="dt-td"><Badge label={o.status||"New"} cfg={ORDER_BADGE}/></td>
+                  </tr>
+                ))
+            }
           </tbody>
         </table>
       </div>
@@ -389,12 +403,27 @@ function Dashboard({orders,orderTypes,onNav}){
   );
 }
 
-function OrdersList({orders,orderTypes,onSelect}){
+function OrdersList({onSelect}){
+  const[orders,setOrders]=useState([]);
+  const[loading,setLoading]=useState(true);
   const[search,setSearch]=useState("");
   const[sf,setSf]=useState("All");
+  useEffect(()=>{
+    async function load(){
+      const{data}=await sb.from('orders')
+        .select('order_number,customer_name,destination_country,status,progress_pct')
+        .order('created_at',{ascending:false});
+      setOrders(data||[]);
+      setLoading(false);
+    }
+    load();
+  },[]);
   const filtered=orders.filter(o=>{
-    const ms=!search||o.customer.toLowerCase().includes(search.toLowerCase())||o.id.toLowerCase().includes(search.toLowerCase())||o.ref.toLowerCase().includes(search.toLowerCase());
-    return ms&&(sf==="All"||o.orderStatus===sf);
+    const ms=!search||
+      (o.customer_name||'').toLowerCase().includes(search.toLowerCase())||
+      (o.order_number||'').toLowerCase().includes(search.toLowerCase())||
+      (o.destination_country||'').toLowerCase().includes(search.toLowerCase());
+    return ms&&(sf==="All"||o.status===sf);
   });
   return(
     <div>
@@ -410,28 +439,25 @@ function OrdersList({orders,orderTypes,onSelect}){
       </div>
       <div className="dt-card">
         <table className="dt-table">
-          <thead><tr>{["Order ID","Customer","Ref","Type","Due date","Progress","Status",""].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
+          <thead><tr>{["Order Number","Customer","Destination","Progress","Status",""].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
           <tbody>
-            {filtered.length===0
-              ?<tr><td colSpan={8} style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>No orders found</td></tr>
-              :filtered.map((o,i)=>{
-                const ot=orderTypes.find(t=>t.id===o.orderTypeId);
-                const{pct}=getProgress(o,ot);
-                const last=i===filtered.length-1;
-                const over=o.dueDate<toDay()&&o.orderStatus!=="Complete";
-                return(
-                  <tr key={o.id} className={`dt-tr-click${last?" dt-tr-last":""}`} onClick={()=>onSelect(o.id)}>
-                    <td className="dt-td mono" style={{fontSize:11,color:"#2563eb"}}>{o.id}</td>
-                    <td className="dt-td" style={{fontWeight:500}}>{o.customer}</td>
-                    <td className="dt-td mono" style={{fontSize:11,color:"#94a3b8"}}>{o.ref}</td>
-                    <td className="dt-td">{ot&&<span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#64748b"}}><span style={{width:7,height:7,borderRadius:"50%",background:ot.color,flexShrink:0}}/>{ot.name}</span>}</td>
-                    <td className="dt-td mono" style={{fontSize:11,color:over?"#b91c1c":"#64748b"}}>{o.dueDate}</td>
-                    <td className="dt-td"><Progress pct={pct}/></td>
-                    <td className="dt-td"><Badge label={o.orderStatus} cfg={ORDER_BADGE}/></td>
-                    <td className="dt-td"><i className="ti ti-chevron-right" style={{fontSize:13,color:"#94a3b8"}}/></td>
-                  </tr>
-                );
-              })
+            {loading
+              ?<tr><td colSpan={6} style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>Loading&#x2026;</td></tr>
+              :filtered.length===0
+                ?<tr><td colSpan={6} style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>No orders found</td></tr>
+                :filtered.map((o,i)=>{
+                  const last=i===filtered.length-1;
+                  return(
+                    <tr key={o.order_number} className={`dt-tr-click${last?" dt-tr-last":""}`} onClick={()=>onSelect(o.order_number)}>
+                      <td className="dt-td mono" style={{fontSize:11,color:"#2563eb"}}>{o.order_number}</td>
+                      <td className="dt-td" style={{fontWeight:500}}>{o.customer_name}</td>
+                      <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{o.destination_country||"&#x2014;"}</td>
+                      <td className="dt-td"><Progress pct={o.progress_pct||0}/></td>
+                      <td className="dt-td"><Badge label={o.status||"New"} cfg={ORDER_BADGE}/></td>
+                      <td className="dt-td"><i className="ti ti-chevron-right" style={{fontSize:13,color:"#94a3b8"}}/></td>
+                    </tr>
+                  );
+                })
             }
           </tbody>
         </table>
@@ -703,8 +729,8 @@ function App(){
           </div>
         </div>
         <div className="dt-content">
-          {view==="dashboard"&&<Dashboard orders={orders} orderTypes={orderTypes} onNav={(v,id)=>nav(v,id)}/>}
-          {view==="orders"&&<OrdersList orders={orders} orderTypes={orderTypes} onSelect={id=>nav("order-detail",id)}/>}
+          {view==="dashboard"&&<Dashboard onNav={(v,id)=>nav(v,id)}/>}
+          {view==="orders"&&<OrdersList onSelect={id=>nav("order-detail",id)}/>}
           {view==="order-detail"&&selOrder&&(
             <OrderDetail order={selOrder} orderTypes={orderTypes} users={users} currentUser={user}
               onUpdate={patch=>{setOrders(p=>p.map(o=>o.id===selOrder.id?{...o,...patch}:o));showToast("Order updated");}}
