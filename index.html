@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DocTrack â Document Checklist System</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;width:100%}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#f1f5f9}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+
+/* Layout */
+.dt-app{display:flex;height:100vh;width:100%;background:#f8fafc;overflow:hidden;position:relative}
+.dt-sidebar{width:220px;background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;flex-shrink:0;height:100vh}
+.dt-logo{padding:18px 16px 14px;border-bottom:1px solid #e2e8f0}
+.dt-logo-name{font-size:16px;font-weight:500;color:#0f172a;display:flex;align-items:center;gap:8px}
+.dt-logo-sub{font-size:9px;color:#94a3b8;letter-spacing:.1em;margin-top:3px;font-family:'JetBrains Mono',monospace}
+.dt-nav{flex:1;padding:12px 8px;overflow-y:auto}
+.dt-nav-section{font-size:9px;color:#94a3b8;letter-spacing:.1em;padding:8px 8px 4px;font-family:'JetBrains Mono',monospace;text-transform:uppercase}
+.dt-nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;margin-bottom:2px;font-size:13.5px;color:#64748b;transition:all .12s;user-select:none}
+.dt-nav-item:hover{background:#f8fafc;color:#0f172a}
+.dt-nav-item.active{background:#f1f5f9;color:#0f172a;font-weight:500}
+.dt-user-footer{padding:14px;border-top:1px solid #e2e8f0}
+.dt-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.dt-topbar{background:#fff;border-bottom:1px solid #e2e8f0;padding:0 24px;height:54px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.dt-topbar-title{font-size:15px;font-weight:500;color:#0f172a}
+.dt-content{flex:1;overflow-y:auto;padding:24px}
+
+/* Cards & Tables */
+.dt-card{background:#fff;border-radius:10px;border:1px solid #e2e8f0}
+.dt-table{width:100%;border-collapse:collapse}
+.dt-th{padding:9px 13px;font-size:11px;font-weight:500;color:#94a3b8;text-align:left;border-bottom:1px solid #e2e8f0;white-space:nowrap;letter-spacing:.03em;text-transform:uppercase}
+.dt-td{padding:11px 13px;font-size:13.5px;color:#1e293b;border-bottom:1px solid #f1f5f9}
+.dt-tr-last td{border-bottom:none}
+.dt-tr-click{cursor:pointer}
+.dt-tr-click:hover td{background:#fafafa}
+
+/* Badges */
+.dt-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500;white-space:nowrap}
+
+/* Progress */
+.dt-progress-wrap{display:flex;align-items:center;gap:8px;min-width:100px}
+.dt-progress-bar{flex:1;height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden}
+.dt-progress-fill{height:100%;border-radius:3px;transition:width .3s}
+.dt-progress-pct{font-size:11px;color:#64748b;width:28px;font-family:'JetBrains Mono',monospace;flex-shrink:0}
+
+/* Stats */
+.dt-stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.dt-stat{background:#fff;border-radius:10px;border:1px solid #e2e8f0;padding:16px}
+.dt-stat-label{font-size:12px;color:#64748b;margin-bottom:6px}
+.dt-stat-val{font-size:26px;font-weight:500}
+
+/* Section header */
+.dt-section-hdr{padding:13px 16px;border-bottom:1px solid #e2e8f0;font-size:13.5px;font-weight:500;color:#0f172a;display:flex;justify-content:space-between;align-items:center}
+
+/* Filters */
+.dt-filters{display:flex;gap:8px;margin-bottom:16px}
+.dt-search-wrap{position:relative;flex:1}
+.dt-search-wrap input{padding-left:32px;width:100%}
+.dt-search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:15px;color:#94a3b8;pointer-events:none}
+
+/* Order detail */
+.dt-back-btn{display:flex;align-items:center;gap:5px;font-size:13px;color:#64748b;cursor:pointer;margin-bottom:16px;background:none;border:none;padding:0;font-family:'DM Sans',sans-serif}
+.dt-back-btn:hover{color:#0f172a}
+.dt-order-meta{display:flex;gap:16px;font-size:12px;color:#64748b;margin-top:6px;flex-wrap:wrap}
+.dt-order-meta span{display:flex;align-items:center;gap:4px}
+
+/* Forms & Inputs */
+input,select,textarea{font-family:'DM Sans',sans-serif;font-size:13.5px;padding:7px 10px;border:1px solid #e2e8f0;border-radius:6px;color:#0f172a;outline:none;background:#fff;width:100%}
+input:focus,select:focus{border-color:#94a3b8}
+button{font-family:'DM Sans',sans-serif;font-size:13.5px;padding:7px 14px;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;background:#fff;color:#475569;transition:background .12s}
+button:hover{background:#f8fafc}
+
+/* Modal */
+.dt-modal-bg{position:absolute;inset:0;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;z-index:200}
+.dt-modal{background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:24px;width:420px;max-width:90%;box-shadow:0 8px 32px rgba(0,0,0,.12)}
+.dt-modal-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.dt-modal-title{font-size:15px;font-weight:500;color:#0f172a}
+.dt-modal-close{background:none;border:none;cursor:pointer;font-size:20px;color:#94a3b8;line-height:1;padding:0 3px}
+.dt-modal-close:hover{color:#0f172a}
+.dt-field{margin-bottom:13px}
+.dt-field label{display:block;font-size:11px;font-weight:500;color:#64748b;margin-bottom:4px;letter-spacing:.04em;text-transform:uppercase}
+.dt-modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+.dt-btn-primary{background:#0f172a;color:#fff;border-color:#0f172a}
+.dt-btn-primary:hover{background:#1e293b}
+
+/* Toast */
+.dt-toast{position:absolute;bottom:20px;right:20px;z-index:300;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:500;box-shadow:0 4px 16px rgba(0,0,0,.1);display:flex;align-items:center;gap:6px}
+
+/* Login */
+.dt-login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f5f9}
+.dt-login-card{width:360px;background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:28px 26px;box-shadow:0 4px 24px rgba(0,0,0,.06)}
+
+/* Avatar */
+.dt-avatar{width:28px;height:28px;border-radius:50%;background:#dbeafe;color:#1d4ed8;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;flex-shrink:0}
+
+/* Type items */
+.dt-type-item{background:#fff;border-radius:10px;border:1px solid #e2e8f0;overflow:hidden;margin-bottom:10px}
+.dt-type-hdr{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;cursor:pointer}
+.dt-type-hdr:hover{background:#fafafa}
+
+/* Edit row */
+.dt-edit-row td{background:#fafafa}
+.dt-edit-row td input,.dt-edit-row td select{font-size:12px;padding:4px 7px;width:auto}
+
+/* Helpers */
+.dt-ro-label{font-size:11px;color:#94a3b8;display:flex;align-items:center;gap:4px}
+.mono{font-family:'JetBrains Mono',monospace}
+
+@media(max-width:768px){
+  .dt-stat-grid{grid-template-columns:repeat(2,1fr)}
+  .dt-sidebar{width:180px}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useEffect}=React;
+
+/* ── Seed data ── */
+const SOURCES=["Email","Portal Upload","Physical / Scanned","API / System"];
+const DOC_STATUSES=["Pending","Received","Verified","Rejected","Waived"];
+const ORDER_STATUSES=["New","In Progress","On Hold","Complete"];
+const ROLES=["admin","manager","viewer"];
+
+const SEED_ORDER_TYPES=[
+  {id:"ot1",name:"Import Clearance",color:"#f97316",docs:[
+    {id:"ot1d1",name:"Commercial Invoice",required:true},
+    {id:"ot1d2",name:"Bill of Lading",required:true},
+    {id:"ot1d3",name:"Packing List",required:true},
+    {id:"ot1d4",name:"Certificate of Origin",required:false},
+    {id:"ot1d5",name:"Insurance Certificate",required:false}
+  ]},
+  {id:"ot2",name:"Export License",color:"#3b82f6",docs:[
+    {id:"ot2d1",name:"Export License Form",required:true},
+    {id:"ot2d2",name:"End-User Certificate",required:true},
+    {id:"ot2d3",name:"Technical Specifications",required:false}
+  ]},
+  {id:"ot3",name:"Trade Finance",color:"#10b981",docs:[
+    {id:"ot3d1",name:"Letter of Credit",required:true},
+    {id:"ot3d2",name:"Bill of Exchange",required:true},
+    {id:"ot3d3",name:"Bank Guarantee",required:true},
+    {id:"ot3d4",name:"Financial Statements",required:false},
+    {id:"ot3d5",name:"Credit Report",required:false}
+  ]}
+];
+
+const SEED_USERS=[
+  {id:"u1",name:"Admin User",username:"admin",password:"admin",email:"admin@doctrack.io",role:"admin",active:true,created:"2025-01-10"},
+  {id:"u2",name:"Sarah Chen",username:"sarah",password:"sarah",email:"sarah@doctrack.io",role:"manager",active:true,created:"2025-02-14"},
+  {id:"u3",name:"James Okafor",username:"james",password:"james",email:"james@doctrack.io",role:"viewer",active:true,created:"2025-03-01"}
+];
+
+const SEED_ORDERS=[
+  {id:"ORD-001",customer:"Meridian Trading Co.",ref:"MTC-2025-44",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-01",dueDate:"2025-05-20",orderStatus:"In Progress",documents:[
+    {docId:"ot1d1",status:"Verified",source:"Email",receivedAt:"2025-05-02",notes:""},
+    {docId:"ot1d2",status:"Received",source:"Portal Upload",receivedAt:"2025-05-03",notes:""},
+    {docId:"ot1d3",status:"Pending",source:null,receivedAt:null,notes:""},
+    {docId:"ot1d4",status:"Waived",source:null,receivedAt:null,notes:"Customer exempt"},
+    {docId:"ot1d5",status:"Pending",source:null,receivedAt:null,notes:""}
+  ]},
+  {id:"ORD-002",customer:"Atlas Exports GmbH",ref:"AEG-2025-12",orderTypeId:"ot2",assignedTo:"u2",createdAt:"2025-05-03",dueDate:"2025-05-25",orderStatus:"In Progress",documents:[
+    {docId:"ot2d1",status:"Verified",source:"API / System",receivedAt:"2025-05-04",notes:""},
+    {docId:"ot2d2",status:"Rejected",source:"Email",receivedAt:"2025-05-05",notes:"Missing signature"},
+    {docId:"ot2d3",status:"Pending",source:null,receivedAt:null,notes:""}
+  ]},
+  {id:"ORD-003",customer:"Pacific Rim Holdings",ref:"PRH-2025-07",orderTypeId:"ot3",assignedTo:"u2",createdAt:"2025-04-28",dueDate:"2025-05-15",orderStatus:"Complete",documents:[
+    {docId:"ot3d1",status:"Verified",source:"Email",receivedAt:"2025-04-29",notes:""},
+    {docId:"ot3d2",status:"Verified",source:"Physical / Scanned",receivedAt:"2025-04-30",notes:""},
+    {docId:"ot3d3",status:"Verified",source:"Portal Upload",receivedAt:"2025-05-01",notes:""},
+    {docId:"ot3d4",status:"Verified",source:"Email",receivedAt:"2025-05-01",notes:""},
+    {docId:"ot3d5",status:"Waived",source:null,receivedAt:null,notes:""}
+  ]},
+  {id:"ORD-004",customer:"Centauri Logistics",ref:"CL-2025-55",orderTypeId:"ot1",assignedTo:"u2",createdAt:"2025-05-07",dueDate:"2025-05-30",orderStatus:"New",documents:[
+    {docId:"ot1d1",status:"Pending",source:null,receivedAt:null,notes:""},
+    {docId:"ot1d2",status:"Pending",source:null,receivedAt:null,notes:""},
+    {docId:"ot1d3",status:"Pending",source:null,receivedAt:null,notes:""},
+    {docId:"ot1d4",status:"Pending",source:null,receivedAt:null,notes:""},
+    {docId:"ot1d5",status:"Pending",source:null,receivedAt:null,notes:""}
+  ]}
+];
+
+/* ── Config ── */
+const DOC_BADGE={
+  Pending:{bg:"#f1f5f9",color:"#64748b"},
+  Received:{bg:"#dbeafe",color:"#1d4ed8"},
+  Verified:{bg:"#dcfce7",color:"#15803d"},
+  Rejected:{bg:"#fee2e2",color:"#b91c1c"},
+  Waived:{bg:"#fef3c7",color:"#b45309"}
+};
+const ORDER_BADGE={
+  "New":{bg:"#f1f5f9",color:"#64748b"},
+  "In Progress":{bg:"#dbeafe",color:"#1d4ed8"},
+  "On Hold":{bg:"#fef3c7",color:"#b45309"},
+  "Complete":{bg:"#dcfce7",color:"#15803d"}
+};
+const ROLE_BADGE={
+  admin:{bg:"#ede9fe",color:"#7c3aed"},
+  manager:{bg:"#dbeafe",color:"#1d4ed8"},
+  viewer:{bg:"#f1f5f9",color:"#64748b"}
+};
+
+const canEdit=r=>r==="admin"||r==="manager";
+const canAdmin=r=>r==="admin";
+const toDay=()=>new Date().toISOString().slice(0,10);
+const nextId=(p,arr)=>`${p}-${String(arr.length+1).padStart(3,"0")}`;
+
+function getProgress(order,ot){
+  if(!ot)return{done:0,total:0,pct:0};
+  const req=ot.docs.filter(d=>d.required).map(d=>d.id);
+  const reqDocs=order.documents.filter(d=>req.includes(d.docId));
+  const done=reqDocs.filter(d=>d.status==="Verified"||d.status==="Waived").length;
+  return{done,total:req.length,pct:req.length?Math.round(done/req.length*100):0};
+}
+
+/* ── Components ── */
+function Badge({label,cfg}){
+  const c=cfg[label]||{bg:"#f1f5f9",color:"#64748b"};
+  return <span className="dt-badge" style={{background:c.bg,color:c.color}}>{label}</span>;
+}
+
+function Progress({pct}){
+  const fill=pct===100?"#16a34a":pct>50?"#2563eb":"#94a3b8";
+  return(
+    <div className="dt-progress-wrap">
+      <div className="dt-progress-bar"><div className="dt-progress-fill" style={{width:`${pct}%`,background:fill}}/></div>
+      <span className="dt-progress-pct">{pct}%</span>
+    </div>
+  );
+}
+
+function Toast({toast}){
+  if(!toast)return null;
+  const ok=toast.ok!==false;
+  return(
+    <div className="dt-toast" style={{background:ok?"#f0fdf4":"#fef2f2",color:ok?"#15803d":"#b91c1c",border:`1px solid ${ok?"#bbf7d0":"#fecaca"}`}}>
+      <i className={`ti ${ok?"ti-check":"ti-x"}`}/> {toast.msg}
+    </div>
+  );
+}
+
+function ModalWrap({title,onClose,children}){
+  return(
+    <div className="dt-modal-bg" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="dt-modal">
+        <div className="dt-modal-hdr">
+          <span className="dt-modal-title">{title}</span>
+          <button className="dt-modal-close" onClick={onClose}>&#x2715;</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FField({label,children}){
+  return <div className="dt-field"><label>{label}</label>{children}</div>;
+}
+
+function Login({users,onLogin}){
+  const[un,setUn]=useState("");
+  const[pw,setPw]=useState("");
+  const[err,setErr]=useState("");
+  const go=()=>{
+    const u=users.find(u=>u.username===un&&u.password===pw&&u.active);
+    if(u)onLogin(u); else setErr("Invalid username or password.");
+  };
+  return(
+    <div className="dt-login-page">
+      <div className="dt-login-card">
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
+          <i className="ti ti-file-check" style={{fontSize:26,color:"#f97316"}}/>
+          <div>
+            <div style={{fontSize:18,fontWeight:500,color:"#0f172a"}}>DocTrack</div>
+            <div style={{fontSize:9,color:"#94a3b8",letterSpacing:".1em",fontFamily:"'JetBrains Mono',monospace"}}>DOCUMENT CHECKLIST SYSTEM</div>
+          </div>
+        </div>
+        <div className="dt-field"><label>Username</label><input value={un} onChange={e=>setUn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="username" autoFocus/></div>
+        <div className="dt-field"><label>Password</label><input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;"/></div>
+        {err&&<div style={{fontSize:12,color:"#b91c1c",marginBottom:10}}>{err}</div>}
+        <button onClick={go} className="dt-btn-primary" style={{width:"100%",justifyContent:"center",display:"flex",alignItems:"center",gap:6}}>
+          Sign in <i className="ti ti-arrow-right"/>
+        </button>
+        <div style={{marginTop:16,padding:"10px 12px",background:"#f8fafc",borderRadius:8,fontSize:11,color:"#64748b",lineHeight:1.9,fontFamily:"'JetBrains Mono',monospace"}}>
+          admin / admin &middot; full access<br/>
+          sarah / sarah &middot; manager<br/>
+          james / james &middot; viewer (read-only)
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({user,view,onNav,onLogout}){
+  const item=(icon,label,target)=>{
+    const active=view===target||(target==="orders"&&view==="order-detail");
+    return(
+      <div key={target} className={`dt-nav-item${active?" active":""}`} onClick={()=>onNav(target)}>
+        <i className={`ti ${icon}`} style={{fontSize:17}}/>{label}
+      </div>
+    );
+  };
+  const rb=ROLE_BADGE[user.role];
+  const initials=user.name.split(" ").map(n=>n[0]).join("").slice(0,2);
+  return(
+    <div className="dt-sidebar">
+      <div className="dt-logo">
+        <div className="dt-logo-name"><i className="ti ti-file-check" style={{fontSize:20,color:"#f97316"}}/>DocTrack</div>
+        <div className="dt-logo-sub">DOC CHECKLIST SYSTEM</div>
+      </div>
+      <div className="dt-nav">
+        <div className="dt-nav-section">Main</div>
+        {item("ti-layout-dashboard","Dashboard","dashboard")}
+        {item("ti-clipboard-list","Orders","orders")}
+        {canAdmin(user.role)&&<>
+          <div className="dt-nav-section" style={{marginTop:8}}>Admin</div>
+          {item("ti-users","Users","users")}
+          {item("ti-list-details","Order types","types")}
+        </>}
+      </div>
+      <div className="dt-user-footer">
+        <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:8}}>
+          <div className="dt-avatar">{initials}</div>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:12,fontWeight:500,color:"#0f172a",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name}</div>
+            <span className="dt-badge" style={{background:rb.bg,color:rb.color,fontSize:10,padding:"1px 6px"}}>{user.role}</span>
+          </div>
+        </div>
+        <button onClick={onLogout} style={{width:"100%",display:"flex",alignItems:"center",gap:6,justifyContent:"center",fontSize:12,color:"#64748b"}}>
+          <i className="ti ti-logout"/>Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({orders,orderTypes,onNav}){
+  const total=orders.length;
+  const complete=orders.filter(o=>o.orderStatus==="Complete").length;
+  const inProg=orders.filter(o=>o.orderStatus==="In Progress").length;
+  const pendDocs=orders.reduce((a,o)=>a+o.documents.filter(d=>d.status==="Pending").length,0);
+  const recent=[...orders].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,5);
+  return(
+    <div>
+      <div className="dt-stat-grid">
+        {[
+          {label:"Total orders",val:total,icon:"ti-clipboard-list",color:"#0f172a"},
+          {label:"In progress",val:inProg,icon:"ti-clock",color:"#1d4ed8"},
+          {label:"Complete",val:complete,icon:"ti-check",color:"#15803d"},
+          {label:"Pending docs",val:pendDocs,icon:"ti-file-alert",color:"#b45309"}
+        ].map(s=>(
+          <div key={s.label} className="dt-stat">
+            <div className="dt-stat-label"><i className={`ti ${s.icon}`}/> {s.label}</div>
+            <div className="dt-stat-val" style={{color:s.color}}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+      <div className="dt-card">
+        <div className="dt-section-hdr">Recent orders</div>
+        <table className="dt-table">
+          <thead><tr>{["Order","Customer","Type","Progress","Status"].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
+          <tbody>
+            {recent.map((o,i)=>{
+              const ot=orderTypes.find(t=>t.id===o.orderTypeId);
+              const{pct}=getProgress(o,ot);
+              return(
+                <tr key={o.id} className={`dt-tr-click${i===recent.length-1?" dt-tr-last":""}`} onClick={()=>onNav("order-detail",o.id)}>
+                  <td className="dt-td mono" style={{fontSize:12,color:"#2563eb"}}>{o.id}</td>
+                  <td className="dt-td" style={{fontWeight:500}}>{o.customer}</td>
+                  <td className="dt-td">{ot&&<span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#64748b"}}><span style={{width:7,height:7,borderRadius:"50%",background:ot.color,flexShrink:0}}/>{ot.name}</span>}</td>
+                  <td className="dt-td"><Progress pct={pct}/></td>
+                  <td className="dt-td"><Badge label={o.orderStatus} cfg={ORDER_BADGE}/></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function OrdersList({orders,orderTypes,onSelect}){
+  const[search,setSearch]=useState("");
+  const[sf,setSf]=useState("All");
+  const filtered=orders.filter(o=>{
+    const ms=!search||o.customer.toLowerCase().includes(search.toLowerCase())||o.id.toLowerCase().includes(search.toLowerCase())||o.ref.toLowerCase().includes(search.toLowerCase());
+    return ms&&(sf==="All"||o.orderStatus===sf);
+  });
+  return(
+    <div>
+      <div className="dt-filters">
+        <div className="dt-search-wrap">
+          <i className="ti ti-search dt-search-icon"/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search orders&#x2026;"/>
+        </div>
+        <select value={sf} onChange={e=>setSf(e.target.value)} style={{width:"auto"}}>
+          <option value="All">All statuses</option>
+          {ORDER_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+      <div className="dt-card">
+        <table className="dt-table">
+          <thead><tr>{["Order ID","Customer","Ref","Type","Due date","Progress","Status",""].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.length===0
+              ?<tr><td colSpan={8} style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>No orders found</td></tr>
+              :filtered.map((o,i)=>{
+                const ot=orderTypes.find(t=>t.id===o.orderTypeId);
+                const{pct}=getProgress(o,ot);
+                const last=i===filtered.length-1;
+                const over=o.dueDate<toDay()&&o.orderStatus!=="Complete";
+                return(
+                  <tr key={o.id} className={`dt-tr-click${last?" dt-tr-last":""}`} onClick={()=>onSelect(o.id)}>
+                    <td className="dt-td mono" style={{fontSize:11,color:"#2563eb"}}>{o.id}</td>
+                    <td className="dt-td" style={{fontWeight:500}}>{o.customer}</td>
+                    <td className="dt-td mono" style={{fontSize:11,color:"#94a3b8"}}>{o.ref}</td>
+                    <td className="dt-td">{ot&&<span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#64748b"}}><span style={{width:7,height:7,borderRadius:"50%",background:ot.color,flexShrink:0}}/>{ot.name}</span>}</td>
+                    <td className="dt-td mono" style={{fontSize:11,color:over?"#b91c1c":"#64748b"}}>{o.dueDate}</td>
+                    <td className="dt-td"><Progress pct={pct}/></td>
+                    <td className="dt-td"><Badge label={o.orderStatus} cfg={ORDER_BADGE}/></td>
+                    <td className="dt-td"><i className="ti ti-chevron-right" style={{fontSize:13,color:"#94a3b8"}}/></td>
+                  </tr>
+                );
+              })
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function OrderDetail({order,orderTypes,users,currentUser,onUpdate,onUpdateDoc,onBack}){
+  const ot=orderTypes.find(t=>t.id===order.orderTypeId);
+  const{done,total,pct}=getProgress(order,ot);
+  const assigned=users.find(u=>u.id===order.assignedTo);
+  const ro=!canEdit(currentUser.role);
+  const[editDoc,setEditDoc]=useState(null);
+  return(
+    <div>
+      <button className="dt-back-btn" onClick={onBack}><i className="ti ti-arrow-left"/> Back to orders</button>
+      <div className="dt-card" style={{padding:"16px 20px",marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+              <span className="mono" style={{fontSize:12,color:"#2563eb"}}>{order.id}</span>
+              <Badge label={order.orderStatus} cfg={ORDER_BADGE}/>
+              {ot&&<span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#64748b"}}><span style={{width:8,height:8,borderRadius:"50%",background:ot.color}}/>{ot.name}</span>}
+            </div>
+            <div style={{fontSize:18,fontWeight:500,color:"#0f172a",marginBottom:8}}>{order.customer}</div>
+            <div className="dt-order-meta">
+              <span><i className="ti ti-hash"/>{order.ref}</span>
+              <span><i className="ti ti-calendar"/>Created {order.createdAt}</span>
+              <span><i className="ti ti-clock"/>Due {order.dueDate}</span>
+              {assigned&&<span><i className="ti ti-user"/>{assigned.name}</span>}
+            </div>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{fontSize:11,color:"#64748b",marginBottom:3}}>Required docs complete</div>
+            <div style={{fontSize:24,fontWeight:500,color:pct===100?"#15803d":"#0f172a"}}>{done}/{total}</div>
+            <Progress pct={pct}/>
+          </div>
+        </div>
+        {!ro&&(
+          <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #f1f5f9",display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontSize:12,color:"#64748b"}}>Order status:</span>
+            <select value={order.orderStatus} onChange={e=>onUpdate({orderStatus:e.target.value})} style={{width:"auto",fontSize:12,padding:"4px 8px"}}>
+              {ORDER_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+      <div className="dt-card">
+        <div className="dt-section-hdr">
+          Document checklist
+          {ro&&<span className="dt-ro-label"><i className="ti ti-eye"/>Read-only</span>}
+        </div>
+        <table className="dt-table">
+          <thead><tr>{["Document","Required","Status","Source","Received","Notes",ro?"":""].map((h,i)=><th key={i} className="dt-th">{h}</th>)}</tr></thead>
+          <tbody>
+            {ot&&ot.docs.map((def,i)=>{
+              const ds=order.documents.find(d=>d.docId===def.id)||{status:"Pending",source:null,receivedAt:null,notes:""};
+              const editing=editDoc===def.id;
+              const last=i===ot.docs.length-1;
+              return(
+                <tr key={def.id} className={`${editing?"dt-edit-row":""}${last?" dt-tr-last":""}`}>
+                  <td className="dt-td" style={{fontWeight:500}}>{def.name}</td>
+                  <td className="dt-td">
+                    {def.required
+                      ?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>
+                      :<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}
+                  </td>
+                  {editing?(
+                    <>
+                      <td className="dt-td"><select value={ds.status} onChange={e=>onUpdateDoc(def.id,{status:e.target.value})} style={{width:110}}>{DOC_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}</select></td>
+                      <td className="dt-td"><select value={ds.source||""} onChange={e=>onUpdateDoc(def.id,{source:e.target.value||null})} style={{width:140}}><option value="">—</option>{SOURCES.map(s=><option key={s} value={s}>{s}</option>)}</select></td>
+                      <td className="dt-td"><input type="date" value={ds.receivedAt||""} onChange={e=>onUpdateDoc(def.id,{receivedAt:e.target.value||null})} style={{width:140}}/></td>
+                      <td className="dt-td"><input value={ds.notes} onChange={e=>onUpdateDoc(def.id,{notes:e.target.value})} placeholder="Notes&#x2026;" style={{width:"100%"}}/></td>
+                      <td className="dt-td"><button onClick={()=>setEditDoc(null)} style={{display:"flex",alignItems:"center",gap:4,fontSize:12}}><i className="ti ti-check"/>Done</button></td>
+                    </>
+                  ):(
+                    <>
+                      <td className="dt-td"><Badge label={ds.status} cfg={DOC_BADGE}/></td>
+                      <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{ds.source||"—"}</td>
+                      <td className="dt-td mono" style={{fontSize:11,color:"#94a3b8"}}>{ds.receivedAt||"—"}</td>
+                      <td className="dt-td" style={{fontSize:12,color:"#64748b",maxWidth:150,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ds.notes||"—"}</td>
+                      {!ro&&<td className="dt-td"><button onClick={()=>setEditDoc(def.id)} style={{display:"flex",alignItems:"center",gap:4,fontSize:12}}><i className="ti ti-pencil"/>Edit</button></td>}
+                    </>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function UsersView({users,onUpdate}){
+  return(
+    <div className="dt-card">
+      <table className="dt-table">
+        <thead><tr>{["Name","Username","Email","Role","Status","Created",""].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
+        <tbody>
+          {users.map((u,i)=>{
+            const last=i===users.length-1;
+            const initials=u.name.split(" ").map(n=>n[0]).join("").slice(0,2);
+            return(
+              <tr key={u.id} className={last?"dt-tr-last":""}>
+                <td className="dt-td"><div style={{display:"flex",alignItems:"center",gap:8}}><div className="dt-avatar">{initials}</div><span style={{fontWeight:500}}>{u.name}</span></div></td>
+                <td className="dt-td mono" style={{fontSize:12,color:"#64748b"}}>{u.username}</td>
+                <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{u.email}</td>
+                <td className="dt-td">
+                  <select value={u.role} onChange={e=>onUpdate(u.id,{role:e.target.value})} style={{width:"auto",fontSize:12,padding:"4px 8px"}}>
+                    <option value="admin">admin</option>
+                    <option value="manager">manager</option>
+                    <option value="viewer">viewer (read-only)</option>
+                  </select>
+                </td>
+                <td className="dt-td"><Badge label={u.active?"Active":"Inactive"} cfg={{Active:{bg:"#dcfce7",color:"#15803d"},Inactive:{bg:"#fee2e2",color:"#b91c1c"}}}/></td>
+                <td className="dt-td mono" style={{fontSize:11,color:"#94a3b8"}}>{u.created}</td>
+                <td className="dt-td"><button onClick={()=>onUpdate(u.id,{active:!u.active})} style={{fontSize:12}}>{u.active?"Deactivate":"Activate"}</button></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TypesView({orderTypes,onAddDoc}){
+  const[expanded,setExpanded]=useState(null);
+  const[docName,setDocName]=useState("");
+  const[docReq,setDocReq]=useState(true);
+  return(
+    <div>
+      {orderTypes.map(ot=>(
+        <div key={ot.id} className="dt-type-item">
+          <div className="dt-type-hdr" onClick={()=>setExpanded(expanded===ot.id?null:ot.id)}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{width:10,height:10,borderRadius:"50%",background:ot.color,flexShrink:0}}/>
+              <span style={{fontSize:14,fontWeight:500,color:"#0f172a"}}>{ot.name}</span>
+              <span style={{fontSize:12,color:"#94a3b8"}}>{ot.docs.length} documents</span>
+            </div>
+            <i className={`ti ${expanded===ot.id?"ti-chevron-up":"ti-chevron-down"}`} style={{fontSize:14,color:"#94a3b8"}}/>
+          </div>
+          {expanded===ot.id&&(
+            <div style={{borderTop:"1px solid #f1f5f9"}}>
+              <table className="dt-table">
+                <thead><tr><th className="dt-th">Document</th><th className="dt-th">Required</th></tr></thead>
+                <tbody>
+                  {ot.docs.map((d,i)=>(
+                    <tr key={d.id} className={i===ot.docs.length-1?"dt-tr-last":""}>
+                      <td className="dt-td">{d.name}</td>
+                      <td className="dt-td">{d.required?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>:<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}</td>
+                    </tr>
+                  ))}
+                  <tr style={{background:"#fafafa"}}>
+                    <td className="dt-td"><input value={docName} onChange={e=>setDocName(e.target.value)} placeholder="Add document&#x2026;" style={{fontSize:12,width:"90%"}}/></td>
+                    <td className="dt-td" style={{display:"flex",alignItems:"center",gap:8,borderBottom:"none"}}>
+                      <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#64748b",cursor:"pointer",whiteSpace:"nowrap"}}>
+                        <input type="checkbox" checked={docReq} onChange={e=>setDocReq(e.target.checked)} style={{width:"auto"}}/> Required
+                      </label>
+                      <button onClick={()=>{if(docName.trim()){onAddDoc(ot.id,{name:docName.trim(),required:docReq});setDocName("");}}} style={{fontSize:12,whiteSpace:"nowrap"}}>Add</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CreateOrderModal({orderTypes,users,onClose,onCreate}){
+  const[f,setF]=useState({customer:"",ref:"",orderTypeId:orderTypes[0]?.id||"",assignedTo:users.find(u=>u.role!=="viewer")?.id||"",dueDate:""});
+  const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  return(
+    <ModalWrap title="New order" onClose={onClose}>
+      <FField label="Customer name"><input value={f.customer} onChange={e=>u("customer",e.target.value)} placeholder="Customer name"/></FField>
+      <FField label="Reference number"><input value={f.ref} onChange={e=>u("ref",e.target.value)} placeholder="e.g. MTC-2025-55"/></FField>
+      <FField label="Order type"><select value={f.orderTypeId} onChange={e=>u("orderTypeId",e.target.value)}>{orderTypes.map(ot=><option key={ot.id} value={ot.id}>{ot.name}</option>)}</select></FField>
+      <FField label="Assign to"><select value={f.assignedTo} onChange={e=>u("assignedTo",e.target.value)}>{users.filter(u=>u.active&&u.role!=="viewer").map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}</select></FField>
+      <FField label="Due date"><input type="date" value={f.dueDate} onChange={e=>u("dueDate",e.target.value)}/></FField>
+      <div className="dt-modal-actions">
+        <button onClick={onClose}>Cancel</button>
+        <button onClick={()=>f.customer&&f.orderTypeId&&onCreate(f)} className="dt-btn-primary">Create order</button>
+      </div>
+    </ModalWrap>
+  );
+}
+
+function CreateUserModal({onClose,onCreate}){
+  const[f,setF]=useState({name:"",username:"",password:"",email:"",role:"manager"});
+  const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  return(
+    <ModalWrap title="New user" onClose={onClose}>
+      <FField label="Full name"><input value={f.name} onChange={e=>u("name",e.target.value)} placeholder="Full name"/></FField>
+      <FField label="Username"><input value={f.username} onChange={e=>u("username",e.target.value)} placeholder="username"/></FField>
+      <FField label="Password"><input type="password" value={f.password} onChange={e=>u("password",e.target.value)} placeholder="&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;"/></FField>
+      <FField label="Email"><input type="email" value={f.email} onChange={e=>u("email",e.target.value)} placeholder="user@company.com"/></FField>
+      <FField label="Role">
+        <select value={f.role} onChange={e=>u("role",e.target.value)}>
+          <option value="admin">Admin — full access</option>
+          <option value="manager">Manager — manage orders &amp; docs</option>
+          <option value="viewer">Viewer — read-only</option>
+        </select>
+      </FField>
+      <div className="dt-modal-actions">
+        <button onClick={onClose}>Cancel</button>
+        <button onClick={()=>f.name&&f.username&&f.password&&onCreate(f)} className="dt-btn-primary">Create user</button>
+      </div>
+    </ModalWrap>
+  );
+}
+
+function CreateTypeModal({onClose,onCreate}){
+  const colors=["#f97316","#3b82f6","#10b981","#8b5cf6","#ef4444","#06b6d4","#ec4899"];
+  const[name,setName]=useState("");
+  const[color,setColor]=useState(colors[0]);
+  return(
+    <ModalWrap title="New order type" onClose={onClose}>
+      <FField label="Type name"><input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Customs Clearance"/></FField>
+      <FField label="Colour">
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {colors.map(c=><div key={c} onClick={()=>setColor(c)} style={{width:24,height:24,borderRadius:"50%",background:c,cursor:"pointer",border:`2px solid ${color===c?"#0f172a":"transparent"}`,transition:"border .1s"}}/>)}
+        </div>
+      </FField>
+      <p style={{fontSize:12,color:"#64748b",marginBottom:12}}>Add document requirements from the order types page after creating.</p>
+      <div className="dt-modal-actions">
+        <button onClick={onClose}>Cancel</button>
+        <button onClick={()=>name.trim()&&onCreate({name:name.trim(),color})} className="dt-btn-primary">Create type</button>
+      </div>
+    </ModalWrap>
+  );
+}
+
+/* ── Main App ── */
+function App(){
+  const[user,setUser]=useState(null);
+  const[view,setView]=useState("login");
+  const[orderId,setOrderId]=useState(null);
+  const[orders,setOrders]=useState(SEED_ORDERS);
+  const[users,setUsers]=useState(SEED_USERS);
+  const[orderTypes,setOrderTypes]=useState(SEED_ORDER_TYPES);
+  const[toast,setToast]=useState(null);
+  const[modal,setModal]=useState(null);
+
+  const showToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
+  const nav=(v,oid)=>{setView(v);if(oid!==undefined)setOrderId(oid);setModal(null);};
+  const login=(u)=>{setUser(u);setView("dashboard");};
+  const logout=()=>{setUser(null);setView("login");setOrderId(null);};
+
+  if(!user) return <Login users={users} onLogin={login}/>;
+
+  const selOrder=orders.find(o=>o.id===orderId);
+  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":selOrder?`${selOrder.id} — ${selOrder.customer}`:"Order detail",users:"User management",types:"Order types"};
+
+  return(
+    <div className="dt-app">
+      <Sidebar user={user} view={view} onNav={v=>nav(v)} onLogout={logout}/>
+      <div className="dt-main">
+        <div className="dt-topbar">
+          <span className="dt-topbar-title">{titles[view]||""}</span>
+          <div style={{display:"flex",gap:8}}>
+            {view==="orders"&&canEdit(user.role)&&<button onClick={()=>setModal("order")} style={{display:"flex",alignItems:"center",gap:5,fontSize:13}}><i className="ti ti-plus"/>New order</button>}
+            {view==="users"&&canAdmin(user.role)&&<button onClick={()=>setModal("user")} style={{display:"flex",alignItems:"center",gap:5,fontSize:13}}><i className="ti ti-plus"/>New user</button>}
+            {view==="types"&&canAdmin(user.role)&&<button onClick={()=>setModal("type")} style={{display:"flex",alignItems:"center",gap:5,fontSize:13}}><i className="ti ti-plus"/>New type</button>}
+          </div>
+        </div>
+        <div className="dt-content">
+          {view==="dashboard"&&<Dashboard orders={orders} orderTypes={orderTypes} onNav={(v,id)=>nav(v,id)}/>}
+          {view==="orders"&&<OrdersList orders={orders} orderTypes={orderTypes} onSelect={id=>nav("order-detail",id)}/>}
+          {view==="order-detail"&&selOrder&&(
+            <OrderDetail order={selOrder} orderTypes={orderTypes} users={users} currentUser={user}
+              onUpdate={patch=>{setOrders(p=>p.map(o=>o.id===selOrder.id?{...o,...patch}:o));showToast("Order updated");}}
+              onUpdateDoc={(docId,patch)=>{setOrders(p=>p.map(o=>o.id===selOrder.id?{...o,documents:o.documents.map(d=>d.docId===docId?{...d,...patch}:d)}:o));showToast("Document saved");}}
+              onBack={()=>nav("orders")}
+            />
+          )}
+          {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
+          {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}}/>}
+        </div>
+      </div>
+
+      {modal==="order"&&<CreateOrderModal orderTypes={orderTypes} users={users} onClose={()=>setModal(null)} onCreate={f=>{const ot=orderTypes.find(t=>t.id===f.orderTypeId);const no={...f,id:nextId("ORD",orders),createdAt:toDay(),orderStatus:"New",documents:ot?ot.docs.map(d=>({docId:d.id,status:"Pending",source:null,receivedAt:null,notes:""})):[]};setOrders(p=>[no,...p]);setModal(null);nav("order-detail",no.id);showToast("Order created");}}/>}
+      {modal==="user"&&<CreateUserModal onClose={()=>setModal(null)} onCreate={f=>{setUsers(p=>[...p,{...f,id:`u${p.length+1}`,created:toDay(),active:true}]);setModal(null);showToast("User created");}}/>}
+      {modal==="type"&&<CreateTypeModal onClose={()=>setModal(null)} onCreate={f=>{setOrderTypes(p=>[...p,{...f,id:`ot${p.length+1}`,docs:[]}]);setModal(null);showToast("Order type created");}}/>}
+
+      <Toast toast={toast}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
