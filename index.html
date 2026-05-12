@@ -111,6 +111,13 @@ button:hover{background:#f8fafc}
 .dt-ro-label{font-size:11px;color:#94a3b8;display:flex;align-items:center;gap:4px}
 .mono{font-family:'JetBrains Mono',monospace}
 
+/* Shipment Timeline */
+.dt-timeline{position:relative;padding-left:26px}
+.dt-timeline::before{content:'';position:absolute;left:10px;top:6px;bottom:6px;width:2px;background:#e2e8f0;border-radius:2px}
+.dt-tl-item{position:relative;margin-bottom:18px}
+.dt-tl-item:last-child{margin-bottom:0}
+.dt-tl-dot{position:absolute;left:-26px;top:1px;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 0 0 2px #e2e8f0;flex-shrink:0}
+
 .dt-hamburger{display:none;background:none;border:none;padding:4px 6px;cursor:pointer;align-items:center;color:#475569;border-radius:6px}
 .dt-hamburger:hover{background:#f1f5f9}
 @media(max-width:768px){
@@ -253,6 +260,21 @@ const ROLE_BADGE={
   manager:{bg:"#dbeafe",color:"#1d4ed8"},
   viewer:{bg:"#f1f5f9",color:"#64748b"}
 };
+
+const SHIPMENT_MILESTONES=[
+  {type:"Order Confirmed",       icon:"ti-circle-check",   color:"#16a34a"},
+  {type:"Production Started",    icon:"ti-tool",           color:"#7c3aed"},
+  {type:"Ready for Dispatch",    icon:"ti-package",        color:"#2563eb"},
+  {type:"Cargo Collected",       icon:"ti-truck",          color:"#0891b2"},
+  {type:"Vessel Departed",       icon:"ti-ship",           color:"#0284c7"},
+  {type:"In Transit",            icon:"ti-anchor",         color:"#0369a1"},
+  {type:"Arrived at Discharge",  icon:"ti-building-castle",color:"#d97706"},
+  {type:"Customs Clearance",     icon:"ti-file-check",     color:"#ea580c"},
+  {type:"Customs Cleared",       icon:"ti-shield-check",   color:"#16a34a"},
+  {type:"Out for Delivery",      icon:"ti-truck-delivery", color:"#8b5cf6"},
+  {type:"Delivered",             icon:"ti-home-check",     color:"#15803d"},
+];
+const MILESTONE_MAP=Object.fromEntries(SHIPMENT_MILESTONES.map(m=>[m.type,m]));
 
 const canEdit=r=>r==="admin"||r==="manager";
 const canAdmin=r=>r==="admin";
@@ -674,6 +696,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[order,setOrder]=useState(null);
   const[items,setItems]=useState([]);
   const[activity,setActivity]=useState([]);
+  const[shipmentEvents,setShipmentEvents]=useState([]);
   const[loading,setLoading]=useState(true);
   const[isSeed,setIsSeed]=useState(false);
   const[editId,setEditId]=useState(null);
@@ -684,6 +707,11 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[uploading,setUploading]=useState(null);
   const[uploadTarget,setUploadTarget]=useState(null);
   const fileInputRef=useRef(null);
+  const[addingEvent,setAddingEvent]=useState(false);
+  const[newEvType,setNewEvType]=useState(SHIPMENT_MILESTONES[0].type);
+  const[newEvDate,setNewEvDate]=useState('');
+  const[newEvNotes,setNewEvNotes]=useState('');
+  const[savingEvent,setSavingEvent]=useState(false);
 
   useEffect(()=>{load();},[orderId]);
 
@@ -691,11 +719,12 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     setLoading(true);
     const{data:sbOrder}=await sb.from('orders').select('*').eq('order_number',orderId).maybeSingle();
     if(sbOrder){
-      const[{data:sbItems},{data:sbAct}]=await Promise.all([
+      const[{data:sbItems},{data:sbAct},{data:sbEvs}]=await Promise.all([
         sb.from('checklist_items').select('*').eq('order_number',orderId).order('category'),
-        sb.from('order_activity').select('*').eq('order_number',orderId).order('created_at',{ascending:false}).limit(50)
+        sb.from('order_activity').select('*').eq('order_number',orderId).order('created_at',{ascending:false}).limit(50),
+        sb.from('shipment_events').select('*').eq('order_number',orderId).order('event_date',{ascending:true})
       ]);
-      setOrder(sbOrder);setItems(sbItems||[]);setActivity(sbAct||[]);setIsSeed(false);
+      setOrder(sbOrder);setItems(sbItems||[]);setActivity(sbAct||[]);setShipmentEvents(sbEvs||[]);setIsSeed(false);
     } else {
       const seed=SEED_ORDERS.find(o=>o.id===orderId);
       if(seed){
@@ -718,6 +747,23 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     });
     const{data:fresh}=await sb.from('order_activity').select('*').eq('order_number',order.order_number).order('created_at',{ascending:false}).limit(50);
     if(fresh)setActivity(fresh);
+  }
+
+  async function addShipmentEvent(){
+    if(!newEvDate||isSeed)return;
+    setSavingEvent(true);
+    const{error}=await sb.from('shipment_events').insert({
+      order_number:order.order_number,
+      event_type:newEvType,
+      event_date:newEvDate,
+      notes:newEvNotes||null,
+      created_by:currentUser?.email||currentUser?.username||'unknown'
+    });
+    if(error){showToast('Failed to add event: '+error.message,false);setSavingEvent(false);return;}
+    const{data:fresh}=await sb.from('shipment_events').select('*').eq('order_number',order.order_number).order('event_date',{ascending:true});
+    if(fresh)setShipmentEvents(fresh);
+    setAddingEvent(false);setNewEvDate('');setNewEvNotes('');setNewEvType(SHIPMENT_MILESTONES[0].type);
+    showToast('Milestone added');setSavingEvent(false);
   }
 
   function startEdit(item){
@@ -951,6 +997,65 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {!isSeed&&(
+        <div className="dt-card" style={{marginTop:14}}>
+          <div className="dt-section-hdr">
+            Shipment timeline
+            {!ro&&!addingEvent&&<button onClick={()=>setAddingEvent(true)} style={{fontSize:12,display:"flex",alignItems:"center",gap:4,color:"#2563eb",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"'DM Sans',sans-serif"}}>
+              <i className="ti ti-plus"/>Add milestone
+            </button>}
+          </div>
+          <div style={{padding:"16px 18px"}}>
+            {!ro&&addingEvent&&(
+              <div style={{marginBottom:18,padding:"12px 14px",background:"#f8fafc",borderRadius:8,border:"1px solid #e2e8f0"}}>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:8}}>
+                  <select value={newEvType} onChange={e=>setNewEvType(e.target.value)} style={{flex:"0 0 200px",fontSize:12}}>
+                    {SHIPMENT_MILESTONES.map(m=><option key={m.type} value={m.type}>{m.type}</option>)}
+                  </select>
+                  <input type="date" value={newEvDate} onChange={e=>setNewEvDate(e.target.value)} style={{flex:"0 0 140px",fontSize:12}}/>
+                  <input value={newEvNotes} onChange={e=>setNewEvNotes(e.target.value)} placeholder="Notes (optional)…" style={{flex:1,fontSize:12}}/>
+                </div>
+                <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setAddingEvent(false)} style={{fontSize:12,padding:"4px 12px"}}>Cancel</button>
+                  <button onClick={addShipmentEvent} disabled={!newEvDate||savingEvent} className="dt-btn-primary" style={{fontSize:12,padding:"4px 12px"}}>
+                    {savingEvent?"Saving…":"Save"}
+                  </button>
+                </div>
+              </div>
+            )}
+            {shipmentEvents.length===0&&!addingEvent
+              ?<div style={{textAlign:"center",padding:"24px 0",color:"#94a3b8",fontSize:13}}>
+                  <i className="ti ti-ship" style={{fontSize:28,display:"block",marginBottom:8,color:"#e2e8f0"}}/>
+                  No milestones yet{!ro?" — click Add milestone to record shipment progress":""}
+                </div>
+              :<div className="dt-timeline">
+                {shipmentEvents.map((ev,i)=>{
+                  const meta=MILESTONE_MAP[ev.event_type]||{icon:"ti-circle",color:"#64748b"};
+                  const dateStr=ev.event_date?new Date(ev.event_date+'T00:00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):"—";
+                  const isLast=i===shipmentEvents.length-1;
+                  return(
+                    <div key={ev.id} className="dt-tl-item">
+                      <div className="dt-tl-dot" style={{background:meta.color}}>
+                        <i className={`ti ${meta.icon}`} style={{fontSize:10,color:"#fff"}}/>
+                      </div>
+                      <div style={{paddingBottom:isLast?0:4}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                          <span style={{fontSize:13,fontWeight:500,color:"#0f172a"}}>{ev.event_type}</span>
+                          <span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#64748b"}}>{dateStr}</span>
+                          {isLast&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:3,background:"#dcfce7",color:"#15803d",fontWeight:500}}>Latest</span>}
+                        </div>
+                        {ev.notes&&<div style={{fontSize:12,color:"#64748b",marginTop:2}}>{ev.notes}</div>}
+                        <div style={{fontSize:11,color:"#cbd5e1",marginTop:2}}>{ev.created_by||"system"}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            }
           </div>
         </div>
       )}
