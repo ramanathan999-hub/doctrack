@@ -647,7 +647,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                           <button onClick={()=>startEdit(item)} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4}}>
                             <i className="ti ti-pencil"/>Override
                           </button>
-                          {item.status!=="Verified"&&item.status!=="Waived"&&(
+                          {item.status!=="Verified"&&item.status!=="Waived"&&item.status!=="Complete"&&(
                             <button onClick={()=>submitDoc(item)} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4,background:"#dbeafe",borderColor:"#bfdbfe",color:"#1d4ed8"}}>
                               <i className="ti ti-send"/>Submit
                             </button>
