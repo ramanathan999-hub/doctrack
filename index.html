@@ -143,6 +143,7 @@ button:hover{background:#f8fafc}
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script type="text/babel">
 const {useState,useEffect,useRef}=React;
+const SHARE_TOKEN=new URLSearchParams(location.search).get('share');
 const sb=window.supabase.createClient('https://syorwcsahfxbemvwdxrz.supabase.co','sb_publishable_S6_L3SlyflJLJ85IbCPwFA_G6ZKA8e_');
 
 /* ── Seed data ── */
@@ -839,6 +840,20 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     if(fresh)setActivity(fresh);
   }
 
+  async function generateShare(){
+    if(isSeed){showToast("Demo orders can't be shared",false);return;}
+    let token=order.share_token;
+    if(!token){
+      token=crypto.randomUUID();
+      const{error}=await sb.from('orders').update({share_token:token}).eq('order_number',order.order_number);
+      if(error){showToast('Failed to generate share link: '+error.message,false);return;}
+      setOrder(p=>({...p,share_token:token}));
+    }
+    const url=`${location.origin}${location.pathname}?share=${token}`;
+    try{await navigator.clipboard.writeText(url);showToast('Share link copied to clipboard');}
+    catch{showToast('Share link: '+url);}
+  }
+
   async function addShipmentEvent(){
     if(!newEvDate||isSeed)return;
     setSavingEvent(true);
@@ -961,6 +976,9 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
             <div style={{fontSize:11,color:"#64748b",marginBottom:3}}>Required docs complete</div>
             <div style={{fontSize:24,fontWeight:500,color:pct===100?"#15803d":"#0f172a"}}>{reqDone}/{reqTotal}</div>
             <Progress pct={pct}/>
+            {!isSeed&&<button onClick={generateShare} style={{marginTop:8,fontSize:11,display:"flex",alignItems:"center",gap:4,color:"#2563eb",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"'DM Sans',sans-serif",marginLeft:"auto"}}>
+              <i className="ti ti-share" style={{fontSize:13}}/>{order.share_token?"Copy share link":"Generate share link"}
+            </button>}
           </div>
         </div>
       </div>
@@ -1400,6 +1418,115 @@ function KVKSearch(){
   );
 }
 
+function SharedView({token}){
+  const[order,setOrder]=useState(null);
+  const[items,setItems]=useState([]);
+  const[loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    async function load(){
+      const{data:ord}=await sb.from('orders').select('*').eq('share_token',token).maybeSingle();
+      if(ord){
+        const{data:its}=await sb.from('checklist_items').select('*').eq('order_number',ord.order_number).order('category');
+        setOrder(ord);setItems(its||[]);
+      }
+      setLoading(false);
+    }
+    load();
+  },[]);
+
+  if(loading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
+  if(!order)return(
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9'}}>
+      <div style={{textAlign:'center'}}>
+        <i className="ti ti-link-off" style={{fontSize:40,color:'#e2e8f0',display:'block',marginBottom:12}}/>
+        <div style={{fontSize:15,fontWeight:500,color:'#0f172a',marginBottom:4}}>Share link not found</div>
+        <div style={{fontSize:13,color:'#94a3b8'}}>This link may have expired or been revoked.</div>
+      </div>
+    </div>
+  );
+
+  const cats=[...new Set(items.map(i=>i.category||'General'))];
+  const reqItems=items.filter(i=>!i.condition||i.condition==='Always');
+  const reqDone=reqItems.filter(i=>['Verified','Waived','Complete'].includes(i.status)).length;
+  const reqTotal=reqItems.length||items.length;
+  const pct=reqTotal>0?Math.round(reqDone/reqTotal*100):0;
+
+  return(
+    <div style={{minHeight:'100vh',background:'#f1f5f9',padding:'24px 16px'}}>
+      <div style={{maxWidth:720,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
+          <i className="ti ti-file-check" style={{fontSize:22,color:'#f97316'}}/>
+          <div>
+            <div style={{fontSize:15,fontWeight:500,color:'#0f172a'}}>DocTrack</div>
+            <div style={{fontSize:9,color:'#94a3b8',fontFamily:"'JetBrains Mono',monospace",letterSpacing:'.1em'}}>SHARED VIEW · READ-ONLY</div>
+          </div>
+        </div>
+
+        <div className="dt-card" style={{padding:'16px 20px',marginBottom:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,flexWrap:'wrap'}}>
+            <div>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}}>
+                <span className="mono" style={{fontSize:12,color:'#2563eb'}}>{order.order_number}</span>
+                <Badge label={order.status||'New'} cfg={ORDER_BADGE}/>
+              </div>
+              <div style={{fontSize:18,fontWeight:500,color:'#0f172a',marginBottom:6}}>{order.customer_name}</div>
+              <div className="dt-order-meta">
+                {order.ref&&<span><i className="ti ti-hash"/>{order.ref}</span>}
+                {order.destination_country&&<span><i className="ti ti-map-pin"/>{order.destination_country}</span>}
+                {order.incoterms&&<span><i className="ti ti-tag"/>{order.incoterms}</span>}
+                {order.due_date&&<span><i className="ti ti-clock"/>Due {order.due_date}</span>}
+              </div>
+            </div>
+            <div style={{textAlign:'right',flexShrink:0}}>
+              <div style={{fontSize:11,color:'#64748b',marginBottom:3}}>Docs complete</div>
+              <div style={{fontSize:24,fontWeight:500,color:pct===100?'#15803d':'#0f172a'}}>{reqDone}/{reqTotal}</div>
+              <Progress pct={pct}/>
+            </div>
+          </div>
+        </div>
+
+        <div className="dt-card" style={{marginBottom:24}}>
+          <div className="dt-section-hdr">Document checklist <span className="dt-ro-label"><i className="ti ti-eye"/>Read-only</span></div>
+          {cats.map(cat=>{
+            const catItems=items.filter(i=>(i.category||'General')===cat);
+            return(
+              <div key={cat}>
+                <div style={{padding:'8px 16px',background:'#f8fafc',borderBottom:'1px solid #f1f5f9',fontSize:11,fontWeight:600,color:'#475569',letterSpacing:'.05em',textTransform:'uppercase'}}>
+                  {cat}
+                </div>
+                <table className="dt-table">
+                  <tbody>
+                    {catItems.map((item,i)=>{
+                      const docLabel=item.document_type||item.doc_type||'—';
+                      const last=i===catItems.length-1;
+                      const exp=expiryState(item.valid_until);
+                      return(
+                        <tr key={item.id} className={last?'dt-tr-last':''}>
+                          <td className="dt-td" style={{fontWeight:500}}>
+                            {docLabel}
+                            {exp&&exp.short!==item.valid_until&&<div style={{marginTop:2}}><span style={{fontSize:10,fontWeight:500,color:exp.color,background:exp.bg,padding:'1px 6px',borderRadius:3}}>{exp.short}</span></div>}
+                          </td>
+                          <td className="dt-td"><Badge label={item.status||'Pending'} cfg={DOC_BADGE}/></td>
+                          {item.notes&&<td className="dt-td" style={{fontSize:11,color:'#94a3b8'}}>{item.notes}</td>}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{textAlign:'center',fontSize:11,color:'#94a3b8'}}>
+          Powered by DocTrack · This link provides read-only access to this shipment checklist
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main App ── */
 function App(){
   const[user,setUser]=useState(null);
@@ -1417,6 +1544,7 @@ function App(){
   const login=(u)=>{setUser(u);setView("dashboard");};
   const logout=()=>{setUser(null);setView("login");setOrderId(null);};
 
+  if(SHARE_TOKEN) return <SharedView token={SHARE_TOKEN}/>;
   if(!user) return <Login users={users} onLogin={login}/>;
 
   const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","kvk-search":"KVK Company Search"};
