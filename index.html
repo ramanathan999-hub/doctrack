@@ -125,7 +125,7 @@ button:hover{background:#f8fafc}
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script type="text/babel">
-const {useState,useEffect}=React;
+const {useState,useEffect,useRef}=React;
 const sb=window.supabase.createClient('https://syorwcsahfxbemvwdxrz.supabase.co','sb_publishable_S6_L3SlyflJLJ85IbCPwFA_G6ZKA8e_');
 
 /* ── Seed data ── */
@@ -483,6 +483,9 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[editStatus,setEditStatus]=useState('');
   const[editNotes,setEditNotes]=useState('');
   const ro=!canEdit(currentUser.role);
+  const[uploading,setUploading]=useState(null);
+  const[uploadTarget,setUploadTarget]=useState(null);
+  const fileInputRef=useRef(null);
 
   useEffect(()=>{load();},[orderId]);
 
@@ -528,6 +531,29 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     window.open(data.signedUrl,'_blank');
   }
 
+  function triggerUpload(item){setUploadTarget(item);fileInputRef.current.click();}
+
+  async function handleFileSelect(e){
+    const file=e.target.files[0];
+    e.target.value='';
+    if(!file||!uploadTarget)return;
+    const item=uploadTarget;
+    const folder=(item.category||'').trim().replace(/ /g,'_');
+    const docName=(item.document_type||item.doc_type||'').trim().replace(/ /g,'_');
+    const storagePath=`${order.order_number}/${folder}/${docName}_${order.order_number}.pdf`;
+    setUploading(item.id);
+    const{error}=await sb.storage.from('documents').upload(storagePath,file,{contentType:'application/pdf',upsert:true});
+    if(error){showToast('Upload failed: '+error.message,false);}
+    else{
+      if(!['Verified','Waived','Complete'].includes(item.status)&&!isSeed){
+        await sb.from('checklist_items').update({status:'Received'}).eq('id',item.id);
+        setItems(p=>p.map(i=>i.id===item.id?{...i,status:'Received'}:i));
+      }
+      showToast('Document uploaded');
+    }
+    setUploading(null);setUploadTarget(null);
+  }
+
   if(loading)return<div style={{padding:40,textAlign:'center',color:'#94a3b8'}}>Loading&#x2026;</div>;
   if(!order)return<div style={{padding:40,textAlign:'center',color:'#94a3b8'}}>Order not found.</div>;
 
@@ -538,6 +564,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
 
   return(
     <div>
+      <input ref={fileInputRef} type="file" accept=".pdf" style={{display:"none"}} onChange={handleFileSelect}/>
       <button className="dt-back-btn" onClick={onBack}><i className="ti ti-arrow-left"/> Back to orders</button>
       <div className="dt-card" style={{padding:"16px 20px",marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
@@ -595,9 +622,18 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                       }
                     </td>
                     <td className="dt-td">
-                      <button onClick={()=>openDoc(item)} title="Open document" style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",color:"#64748b",display:"flex",alignItems:"center",gap:4,fontSize:12}}>
-                        <i className="ti ti-file-download" style={{fontSize:16,color:"#2563eb"}}/>
-                      </button>
+                      <div style={{display:"flex",alignItems:"center",gap:2}}>
+                        <button onClick={()=>openDoc(item)} title="Open document" style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",display:"flex",alignItems:"center",fontSize:12}}>
+                          <i className="ti ti-file-download" style={{fontSize:16,color:"#2563eb"}}/>
+                        </button>
+                        {!ro&&!isSeed&&(
+                          <button onClick={()=>triggerUpload(item)} title="Upload PDF" disabled={uploading===item.id} style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",display:"flex",alignItems:"center",fontSize:12,opacity:uploading===item.id?.5:1}}>
+                            {uploading===item.id
+                              ?<i className="ti ti-loader-2" style={{fontSize:16,color:"#94a3b8"}}/>
+                              :<i className="ti ti-upload" style={{fontSize:16,color:"#16a34a"}}/>}
+                          </button>
+                        )}
+                      </div>
                     </td>
                     {!ro&&<td className="dt-td">
                       {editing?(
