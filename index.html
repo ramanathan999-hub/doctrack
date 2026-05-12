@@ -187,6 +187,40 @@ const SEED_ORDERS=[
     documents:mkDocs([])},
 ];
 
+/* ── Required docs by destination ── */
+function getRequiredDocs(dest){
+  dest=(dest||'').toLowerCase();
+  const isTurkey=dest.includes('turkey');
+  const isGreeceCyprus=dest.includes('greece')||dest.includes('cyprus');
+  const isEgypt=dest.includes('egypt');
+  const isAfrica=['nigeria','ghana','kenya','cameroon','tanzania','senegal','ethiopia','ivory coast'].some(c=>dest.includes(c));
+  return[
+    {docType:'Invoice',                        category:'SAP docs',        source:'ARL SAP'},
+    {docType:'Certificate of Analysis',        category:'SAP docs',        source:'ARL SAP'},
+    {docType:'Packing List',                   category:'SAP docs',        source:'ARL SAP'},
+    {docType:'Insurance',                      category:'SAP docs',        source:'ARL SAP'},
+    {docType:'Proforma Invoice',               category:'SAP docs',        source:'ARL SAP'},
+    {docType:'Predated Invoice',               category:'SAP docs',        source:'ARL SAP'},
+    {docType:'Beneficiary Certificate',        category:'SAP docs',        source:'ARL SAP'},
+    {docType:'Shipment Advice',                category:'SAP docs',        source:'ARL SAP'},
+    {docType:'SWB',                            category:'Freight docs',    source:'Ocean liner / Forwarder'},
+    {docType:'BL',                             category:'Freight docs',    source:'Ocean liner / Forwarder'},
+    {docType:'Shipping and Vessel Certificate',category:'Freight docs',    source:'Ocean liner / Forwarder'},
+    {docType:'UIT Export Declaration',         category:'Customs docs',    source:'Dutch Customs'},
+    isTurkey&&{docType:'ATR',                  category:'Customs docs',    source:'Dutch Customs'},
+    isGreeceCyprus&&{docType:'T2L Greece or Cyprus',category:'Customs docs',source:'EU Customs'},
+    {docType:'IPPC and ISPM15',                category:'Compliance docs', source:'NVWA'},
+    {docType:'SGS Inspection Report',          category:'Compliance docs', source:'SGS'},
+    isAfrica&&{docType:'COC Certificate of Conformity',category:'Compliance docs',source:'Bureau Veritas'},
+    isAfrica&&{docType:'CTN Cargo Tracking Note',category:'Compliance docs',source:'BESC/ECTN'},
+    {docType:'Bank Draft',                     category:'Finance docs',    source:'Bank'},
+    {docType:'Manufacturer Declaration',       category:'Internal docs',   source:'Internal'},
+    {docType:'Cover Letter',                   category:'Internal docs',   source:'Internal'},
+    isEgypt&&{docType:'MSDS Cargo X Egypt',    category:'Cargo X docs',    source:'Cargo X'},
+    {docType:'Certificate of Origin',          category:'CoC docs',        source:'Chamber of Commerce'},
+  ].filter(Boolean);
+}
+
 /* ── Config ── */
 const DOC_BADGE={
   Pending:{bg:"#f1f5f9",color:"#64748b"},
@@ -761,19 +795,40 @@ function TypesView({orderTypes,onAddDoc}){
   );
 }
 
-function CreateOrderModal({orderTypes,users,onClose,onCreate}){
-  const[f,setF]=useState({customer:"",ref:"",orderTypeId:orderTypes[0]?.id||"",assignedTo:users.find(u=>u.role!=="viewer")?.id||"",dueDate:""});
+function CreateOrderModal({users,onClose,onCreate}){
+  const DESTINATIONS=["Turkey","Greece","Cyprus","Egypt","Nigeria","Ghana","Kenya","Cameroon","Tanzania","Saudi Arabia","UAE","India","China","Singapore","USA","Other"];
+  const INCOTERMS_LIST=["CIF","FOB","EXW","DAP","DDP","CFR"];
+  const[f,setF]=useState({customer:"",ref:"",destination:"",incoterms:"CIF",assignedTo:users.find(u=>u.role!=="viewer")?.id||"",dueDate:""});
+  const[saving,setSaving]=useState(false);
   const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  async function submit(){
+    if(!f.customer||!f.destination)return;
+    setSaving(true);
+    await onCreate(f);
+    setSaving(false);
+  }
   return(
     <ModalWrap title="New order" onClose={onClose}>
-      <FField label="Customer name"><input value={f.customer} onChange={e=>u("customer",e.target.value)} placeholder="Customer name"/></FField>
+      <FField label="Customer name"><input value={f.customer} onChange={e=>u("customer",e.target.value)} placeholder="Customer name" autoFocus/></FField>
       <FField label="Reference number"><input value={f.ref} onChange={e=>u("ref",e.target.value)} placeholder="e.g. MTC-2025-55"/></FField>
-      <FField label="Order type"><select value={f.orderTypeId} onChange={e=>u("orderTypeId",e.target.value)}>{orderTypes.map(ot=><option key={ot.id} value={ot.id}>{ot.name}</option>)}</select></FField>
+      <FField label="Destination country">
+        <select value={f.destination} onChange={e=>u("destination",e.target.value)}>
+          <option value="">Select destination…</option>
+          {DESTINATIONS.map(d=><option key={d} value={d}>{d}</option>)}
+        </select>
+      </FField>
+      <FField label="Incoterms">
+        <select value={f.incoterms} onChange={e=>u("incoterms",e.target.value)}>
+          {INCOTERMS_LIST.map(i=><option key={i} value={i}>{i}</option>)}
+        </select>
+      </FField>
       <FField label="Assign to"><select value={f.assignedTo} onChange={e=>u("assignedTo",e.target.value)}>{users.filter(u=>u.active&&u.role!=="viewer").map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}</select></FField>
       <FField label="Due date"><input type="date" value={f.dueDate} onChange={e=>u("dueDate",e.target.value)}/></FField>
       <div className="dt-modal-actions">
-        <button onClick={onClose}>Cancel</button>
-        <button onClick={()=>f.customer&&f.orderTypeId&&onCreate(f)} className="dt-btn-primary">Create order</button>
+        <button onClick={onClose} disabled={saving}>Cancel</button>
+        <button onClick={submit} disabled={saving||!f.customer||!f.destination} className="dt-btn-primary">
+          {saving?"Creating…":"Create order"}
+        </button>
       </div>
     </ModalWrap>
   );
@@ -941,7 +996,37 @@ function App(){
         </div>
       </div>
 
-      {modal==="order"&&<CreateOrderModal orderTypes={orderTypes} users={users} onClose={()=>setModal(null)} onCreate={f=>{const ot=orderTypes.find(t=>t.id===f.orderTypeId);const no={...f,id:nextId("ORD",orders),createdAt:toDay(),orderStatus:"New",documents:ot?ot.docs.map(d=>({docId:d.id,status:"Pending",source:null,receivedAt:null,notes:""})):[]};setOrders(p=>[no,...p]);setModal(null);nav("order-detail",no.id);showToast("Order created");}}/>}
+      {modal==="order"&&<CreateOrderModal users={users} onClose={()=>setModal(null)} onCreate={async f=>{
+        const{count}=await sb.from('orders').select('*',{count:'exact',head:true});
+        const year=new Date().getFullYear();
+        const orderNumber=`SHP-${year}-${String((count||0)+1).padStart(3,'0')}`;
+        const{data:newOrder,error}=await sb.from('orders').insert({
+          order_number:orderNumber,
+          customer_name:f.customer,
+          destination_country:f.destination,
+          incoterms:f.incoterms,
+          ref:f.ref||null,
+          due_date:f.dueDate||null,
+          status:'New',
+          progress_pct:0,
+          ready_to_ship:false
+        }).select().single();
+        if(error){showToast('Failed to create order: '+error.message,false);return;}
+        const docs=getRequiredDocs(f.destination);
+        await sb.from('checklist_items').insert(docs.map(d=>({
+          order_id:newOrder.id,
+          order_number:orderNumber,
+          category:d.category,
+          document_type:d.docType,
+          source:d.source,
+          status:'Pending',
+          expected:2,
+          found:0
+        })));
+        setModal(null);
+        nav('order-detail',orderNumber);
+        showToast('Order created');
+      }}/>}
       {modal==="user"&&<CreateUserModal onClose={()=>setModal(null)} onCreate={f=>{setUsers(p=>[...p,{...f,id:`u${p.length+1}`,created:toDay(),active:true}]);setModal(null);showToast("User created");}}/>}
       {modal==="type"&&<CreateTypeModal onClose={()=>setModal(null)} onCreate={f=>{setOrderTypes(p=>[...p,{...f,id:`ot${p.length+1}`,docs:[]}]);setModal(null);showToast("Order type created");}}/>}
 
