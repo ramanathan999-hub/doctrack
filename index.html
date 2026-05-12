@@ -111,9 +111,19 @@ button:hover{background:#f8fafc}
 .dt-ro-label{font-size:11px;color:#94a3b8;display:flex;align-items:center;gap:4px}
 .mono{font-family:'JetBrains Mono',monospace}
 
+.dt-hamburger{display:none;background:none;border:none;padding:4px 6px;cursor:pointer;align-items:center;color:#475569;border-radius:6px}
+.dt-hamburger:hover{background:#f1f5f9}
 @media(max-width:768px){
+  .dt-hamburger{display:flex}
   .dt-stat-grid{grid-template-columns:repeat(2,1fr)}
-  .dt-sidebar{width:180px}
+  .dt-sidebar{position:fixed;left:-240px;top:0;height:100vh;z-index:100;transition:left .2s ease;box-shadow:4px 0 24px rgba(0,0,0,.12);width:220px}
+  .dt-sidebar.mobile-open{left:0}
+  .dt-main{width:100%}
+  .dt-content{padding:14px}
+  .dt-topbar{padding:0 14px}
+  .dt-card{overflow-x:auto}
+  .dt-stat-grid{gap:8px}
+  .dt-stat{padding:12px}
 }
 </style>
 </head>
@@ -335,11 +345,11 @@ function Login({users,onLogin}){
   );
 }
 
-function Sidebar({user,view,onNav,onLogout}){
+function Sidebar({user,view,onNav,onLogout,open,onClose}){
   const item=(icon,label,target)=>{
     const active=view===target||(target==="orders"&&view==="order-detail");
     return(
-      <div key={target} className={`dt-nav-item${active?" active":""}`} onClick={()=>onNav(target)}>
+      <div key={target} className={`dt-nav-item${active?" active":""}`} onClick={()=>{onNav(target);onClose();}}>
         <i className={`ti ${icon}`} style={{fontSize:17}}/>{label}
       </div>
     );
@@ -347,7 +357,7 @@ function Sidebar({user,view,onNav,onLogout}){
   const rb=ROLE_BADGE[user.role];
   const initials=user.name.split(" ").map(n=>n[0]).join("").slice(0,2);
   return(
-    <div className="dt-sidebar">
+    <div className={`dt-sidebar${open?" mobile-open":""}`}>
       <div className="dt-logo">
         <div className="dt-logo-name"><i className="ti ti-file-check" style={{fontSize:20,color:"#f97316"}}/>DocTrack</div>
         <div className="dt-logo-sub">DOC CHECKLIST SYSTEM</div>
@@ -405,10 +415,11 @@ function DonutChart({segments,size=130}){
 
 function Dashboard({onNav}){
   const[data,setData]=useState(null);
+  const[period,setPeriod]=useState('all');
   useEffect(()=>{
     async function load(){
       const{data:orders}=await sb.from('orders')
-        .select('order_number,customer_name,destination_country,status,progress_pct,ready_to_ship')
+        .select('order_number,customer_name,destination_country,status,progress_pct,ready_to_ship,created_at')
         .order('created_at',{ascending:false});
       if(!orders||orders.length===0){
         const missingDocs=SEED_ORDERS.filter(o=>{const ot=SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId);if(!ot)return false;const req=ot.docs.filter(d=>d.required).map(d=>d.id);return o.documents.some(d=>req.includes(d.docId)&&d.status!=="Verified"&&d.status!=="Waived");}).length;
@@ -425,22 +436,43 @@ function Dashboard({onNav}){
 
   if(!data)return<div style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:13}}>Loading&#x2026;</div>;
 
+  const filterOrders=(orders)=>{
+    if(period==='all')return orders;
+    const cutoff=new Date();
+    if(period==='week')cutoff.setDate(cutoff.getDate()-7);
+    if(period==='month')cutoff.setMonth(cutoff.getMonth()-1);
+    return orders.filter(o=>new Date(o.created_at)>=cutoff);
+  };
+  const filtered=filterOrders(data.orders);
+  const fBy={"New":0,"In Progress":0,"On Hold":0,"Complete":0};
+  filtered.forEach(o=>{if(fBy[o.status]!==undefined)fBy[o.status]++;});
+  const fStats={total:filtered.length,inProgress:fBy["In Progress"],complete:fBy["Complete"],missingDocs:filtered.filter(o=>!o.ready_to_ship&&o.status!=="Complete").length};
+
   const donut=[
-    {label:"Complete",   v:data.byStatus["Complete"],   color:"#16a34a"},
-    {label:"In Progress",v:data.byStatus["In Progress"],color:"#2563eb"},
-    {label:"On Hold",    v:data.byStatus["On Hold"],    color:"#d97706"},
-    {label:"New",        v:data.byStatus["New"],        color:"#cbd5e1"},
+    {label:"Complete",   v:fBy["Complete"],   color:"#16a34a"},
+    {label:"In Progress",v:fBy["In Progress"],color:"#2563eb"},
+    {label:"On Hold",    v:fBy["On Hold"],    color:"#d97706"},
+    {label:"New",        v:fBy["New"],        color:"#cbd5e1"},
   ].filter(s=>s.v>0);
 
   const statCards=[
-    {label:"Total orders",   val:data.total,       icon:"ti-clipboard-list", color:"#0f172a", accent:"#f1f5f9"},
-    {label:"In progress",    val:data.inProgress,  icon:"ti-clock",          color:"#2563eb", accent:"#dbeafe"},
-    {label:"Complete",       val:data.complete,    icon:"ti-circle-check",   color:"#16a34a", accent:"#dcfce7"},
-    {label:"Awaiting docs",  val:data.missingDocs, icon:"ti-file-alert",     color:"#d97706", accent:"#fef3c7"},
+    {label:"Total orders",  val:fStats.total,       icon:"ti-clipboard-list", color:"#0f172a", accent:"#f1f5f9"},
+    {label:"In progress",   val:fStats.inProgress,  icon:"ti-clock",          color:"#2563eb", accent:"#dbeafe"},
+    {label:"Complete",      val:fStats.complete,    icon:"ti-circle-check",   color:"#16a34a", accent:"#dcfce7"},
+    {label:"Awaiting docs", val:fStats.missingDocs, icon:"ti-file-alert",     color:"#d97706", accent:"#fef3c7"},
   ];
 
   return(
     <div>
+      {/* Period filter */}
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        {[['all','All time'],['month','This month'],['week','This week']].map(([p,label])=>(
+          <button key={p} onClick={()=>setPeriod(p)} style={{fontSize:11,padding:"4px 12px",borderRadius:6,background:period===p?"#0f172a":"#fff",color:period===p?"#fff":"#64748b",border:`1px solid ${period===p?"#0f172a":"#e2e8f0"}`,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Stat cards */}
       <div className="dt-stat-grid" style={{marginBottom:16}}>
         {statCards.map(s=>(
@@ -467,10 +499,10 @@ function Dashboard({onNav}){
             <DonutChart segments={donut} size={130}/>
             <div style={{width:"100%"}}>
               {[
-                {label:"Complete",   color:"#16a34a", v:data.byStatus["Complete"]},
-                {label:"In Progress",color:"#2563eb", v:data.byStatus["In Progress"]},
-                {label:"On Hold",    color:"#d97706", v:data.byStatus["On Hold"]},
-                {label:"New",        color:"#cbd5e1", v:data.byStatus["New"]},
+                {label:"Complete",   color:"#16a34a", v:fBy["Complete"]},
+                {label:"In Progress",color:"#2563eb", v:fBy["In Progress"]},
+                {label:"On Hold",    color:"#d97706", v:fBy["On Hold"]},
+                {label:"New",        color:"#cbd5e1", v:fBy["New"]},
               ].map(s=>(
                 <div key={s.label} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
                   <div style={{width:9,height:9,borderRadius:"50%",background:s.color,flexShrink:0}}/>
@@ -486,7 +518,7 @@ function Dashboard({onNav}){
         <div className="dt-card" style={{padding:"16px 20px"}}>
           <div style={{fontSize:13,fontWeight:500,color:"#0f172a",marginBottom:16}}>Document completion by order</div>
           <div>
-            {data.orders.slice(0,7).map(o=>{
+            {filtered.slice(0,7).map(o=>{
               const pct=o.progress_pct||0;
               const color=pct===100?"#16a34a":pct>=50?"#2563eb":pct>0?"#d97706":"#e2e8f0";
               const badgeCfg=ORDER_BADGE[o.status]||{bg:"#f1f5f9",color:"#64748b"};
@@ -521,7 +553,7 @@ function Dashboard({onNav}){
         <table className="dt-table">
           <thead><tr>{["Order","Customer","Destination","Progress","Status"].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
           <tbody>
-            {data.orders.slice(0,5).map((o,i)=>(
+            {filtered.slice(0,5).map((o,i)=>(
               <tr key={o.order_number} className={`dt-tr-click${i===4||i===data.orders.slice(0,5).length-1?" dt-tr-last":""}`} onClick={()=>onNav("orders")}>
                 <td className="dt-td mono" style={{fontSize:11,color:"#2563eb"}}>{o.order_number}</td>
                 <td className="dt-td" style={{fontWeight:500}}>{o.customer_name}</td>
@@ -661,6 +693,15 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     window.open(data.signedUrl,'_blank');
   }
 
+  async function updateOrderStatus(newStatus){
+    if(!isSeed){
+      const{error}=await sb.from('orders').update({status:newStatus,ready_to_ship:newStatus==="Complete"}).eq('order_number',order.order_number);
+      if(error){showToast('Failed to update status',false);return;}
+    }
+    setOrder(p=>({...p,status:newStatus,ready_to_ship:newStatus==="Complete"}));
+    showToast('Order status updated');
+  }
+
   function triggerUpload(item){setUploadTarget(item);fileInputRef.current.click();}
 
   async function handleFileSelect(e){
@@ -701,7 +742,12 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
               <span className="mono" style={{fontSize:12,color:"#2563eb"}}>{order.order_number}</span>
-              <Badge label={order.status||"New"} cfg={ORDER_BADGE}/>
+              {ro
+                ?<Badge label={order.status||"New"} cfg={ORDER_BADGE}/>
+                :<select value={order.status||"New"} onChange={e=>updateOrderStatus(e.target.value)} style={{fontSize:12,padding:"2px 8px",width:"auto",borderRadius:5}}>
+                  {ORDER_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+              }
             </div>
             <div style={{fontSize:18,fontWeight:500,color:"#0f172a",marginBottom:6}}>{order.customer_name}</div>
             <div className="dt-order-meta">
@@ -724,6 +770,15 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
           Document checklist
           {ro&&<span className="dt-ro-label"><i className="ti ti-eye"/>Read-only</span>}
         </div>
+        {pct===0&&items.length>0&&(
+          <div style={{padding:"12px 16px",background:"#eff6ff",borderBottom:"1px solid #dbeafe",display:"flex",alignItems:"flex-start",gap:12}}>
+            <i className="ti ti-info-circle" style={{fontSize:18,color:"#2563eb",marginTop:1,flexShrink:0}}/>
+            <div>
+              <div style={{fontSize:12,fontWeight:500,color:"#1e40af",marginBottom:3}}>Getting started — {items.length} documents to collect</div>
+              <div style={{fontSize:12,color:"#3b82f6",lineHeight:1.6}}>Use the <strong>green upload button</strong> to attach PDFs directly, or the <strong>pencil icon</strong> to manually set a document status.</div>
+            </div>
+          </div>
+        )}
         <table className="dt-table">
           <thead><tr>
             <th className="dt-th">Category</th>
@@ -1055,6 +1110,7 @@ function App(){
   const[orderTypes,setOrderTypes]=useState(SEED_ORDER_TYPES);
   const[toast,setToast]=useState(null);
   const[modal,setModal]=useState(null);
+  const[sidebarOpen,setSidebarOpen]=useState(false);
 
   const showToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
   const nav=(v,oid)=>{setView(v);if(oid!==undefined)setOrderId(oid);setModal(null);};
@@ -1067,10 +1123,14 @@ function App(){
 
   return(
     <div className="dt-app">
-      <Sidebar user={user} view={view} onNav={v=>nav(v)} onLogout={logout}/>
+      <Sidebar user={user} view={view} onNav={v=>nav(v)} onLogout={logout} open={sidebarOpen} onClose={()=>setSidebarOpen(false)}/>
+      {sidebarOpen&&<div onClick={()=>setSidebarOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:99}}/>}
       <div className="dt-main">
         <div className="dt-topbar">
-          <span className="dt-topbar-title">{titles[view]||""}</span>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <button className="dt-hamburger" onClick={()=>setSidebarOpen(p=>!p)}><i className="ti ti-menu-2" style={{fontSize:20}}/></button>
+            <span className="dt-topbar-title">{titles[view]||""}</span>
+          </div>
           <div style={{display:"flex",gap:8}}>
             {view==="orders"&&canEdit(user.role)&&<button onClick={()=>setModal("order")} style={{display:"flex",alignItems:"center",gap:5,fontSize:13}}><i className="ti ti-plus"/>New order</button>}
             {view==="users"&&canAdmin(user.role)&&<button onClick={()=>setModal("user")} style={{display:"flex",alignItems:"center",gap:5,fontSize:13}}><i className="ti ti-plus"/>New user</button>}
