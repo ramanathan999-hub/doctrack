@@ -709,7 +709,7 @@ function Dashboard({onNav}){
           <thead><tr>{["Order","Customer","Destination","Progress","Status"].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
           <tbody>
             {filtered.slice(0,5).map((o,i,arr)=>(
-              <tr key={o.order_number} className={`dt-tr-click${i===arr.length-1?" dt-tr-last":""}`} onClick={()=>onNav("orders")}>
+              <tr key={o.order_number} className={`dt-tr-click${i===arr.length-1?" dt-tr-last":""}`} onClick={()=>onNav("order-detail",o.order_number)}>
                 <td className="dt-td" style={{fontSize:11,color:"#2563eb",fontFamily:"'JetBrains Mono',monospace"}}>{o.order_number}</td>
                 <td className="dt-td" style={{fontWeight:500}}>{o.customer_name}</td>
                 <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{o.destination_country||"—"}</td>
@@ -833,7 +833,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
         setItems(ot?ot.docs.map(def=>{const ds=seed.documents.find(d=>d.docId===def.id)||{status:"Pending",notes:""};return{id:def.id,document_type:def.name,category:def.category||"—",condition:def.required?"Always":"Conditional",status:ds.status,notes:ds.notes||""};}):[]);
         setIsSeed(true);
       }
-      setActivity([]);
+      setActivity([]);setShipmentEvents([]);
     }
     setLoading(false);
   }
@@ -1299,6 +1299,10 @@ function CreateOrderModal({users,onClose,onCreate}){
           {INCOTERMS_LIST.map(i=><option key={i} value={i}>{i}</option>)}
         </select>
       </FField>
+      <div style={{display:"flex",gap:8}}>
+        <FField label="Reference / PO"><input value={f.ref} onChange={e=>u("ref",e.target.value)} placeholder="e.g. PO-2026-001"/></FField>
+        <FField label="Due date"><input type="date" value={f.dueDate} onChange={e=>u("dueDate",e.target.value)}/></FField>
+      </div>
       <div className="dt-modal-actions">
         <button onClick={onClose} disabled={saving}>Cancel</button>
         <button onClick={submit} disabled={saving||!f.customer||!f.destination} className="dt-btn-primary">
@@ -1744,6 +1748,8 @@ function App(){
           customer_name:f.customer,
           destination_country:f.destination,
           incoterms:f.incoterms,
+          ref:f.ref||null,
+          due_date:f.dueDate||null,
           status:'New',
           progress_pct:0,
           ready_to_ship:false
