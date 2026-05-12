@@ -494,7 +494,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
       if(seed){
         const ot=SEED_ORDER_TYPES.find(t=>t.id===seed.orderTypeId);
         setOrder({order_number:seed.id,customer_name:seed.customer,destination_country:null,status:seed.orderStatus,progress_pct:ot?getProgress(seed,ot).pct:0,created_at:seed.createdAt,due_date:seed.dueDate,ref:seed.ref});
-        setItems(ot?ot.docs.map(def=>{const ds=seed.documents.find(d=>d.docId===def.id)||{status:"Pending",notes:""};return{id:def.id,doc_type:def.name,category:def.category||"—",condition:def.required?"Always":"Conditional",status:ds.status,notes:ds.notes||""};}):[]);
+        setItems(ot?ot.docs.map(def=>{const ds=seed.documents.find(d=>d.docId===def.id)||{status:"Pending",notes:""};return{id:def.id,document_type:def.name,category:def.category||"—",condition:def.required?"Always":"Conditional",status:ds.status,notes:ds.notes||""};}):[]);
         setIsSeed(true);
       }
     }
@@ -514,6 +514,15 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     if(!isSeed){await sb.from('checklist_items').update({status:'Received'}).eq('id',item.id);}
     setItems(p=>p.map(i=>i.id===item.id?{...i,status:'Received'}:i));
     showToast('Document submitted');
+  }
+
+  async function openDoc(item){
+    const folder=(item.category||'').trim().replace(/ /g,'_');
+    const docName=(item.document_type||item.doc_type||'').trim().replace(/ /g,'_');
+    const storagePath=`${order.order_number}/${folder}/${docName}_${order.order_number}.pdf`;
+    const{data,error}=await sb.storage.from('documents').createSignedUrl(storagePath,3600);
+    if(error||!data?.signedUrl){showToast('Document not available in storage',false);return;}
+    window.open(data.signedUrl,'_blank');
   }
 
   if(loading)return<div style={{padding:40,textAlign:'center',color:'#94a3b8'}}>Loading&#x2026;</div>;
@@ -559,8 +568,8 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
           <thead><tr>
             <th className="dt-th">Category</th>
             <th className="dt-th">Document</th>
-            <th className="dt-th">Condition</th>
             <th className="dt-th">Status</th>
+            <th className="dt-th">File</th>
             {!ro&&<th className="dt-th">Actions</th>}
           </tr></thead>
           <tbody>
@@ -569,11 +578,11 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
               :items.map((item,i)=>{
                 const last=i===items.length-1;
                 const editing=editId===item.id;
+                const docLabel=item.document_type||item.doc_type||"—";
                 return(
                   <tr key={item.id} className={last?"dt-tr-last":""} style={editing?{background:"#fafafa"}:{}}>
                     <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{item.category||"—"}</td>
-                    <td className="dt-td" style={{fontWeight:500}}>{item.doc_type}</td>
-                    <td className="dt-td" style={{fontSize:11,color:"#94a3b8"}}>{item.condition||"—"}</td>
+                    <td className="dt-td" style={{fontWeight:500}}>{docLabel}</td>
                     <td className="dt-td">
                       {editing
                         ?<select value={editStatus} onChange={e=>setEditStatus(e.target.value)} style={{width:110,fontSize:12,padding:"4px 7px"}}>
@@ -581,6 +590,11 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                         </select>
                         :<Badge label={item.status||"Pending"} cfg={DOC_BADGE}/>
                       }
+                    </td>
+                    <td className="dt-td">
+                      <button onClick={()=>openDoc(item)} title="Open document" style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",color:"#64748b",display:"flex",alignItems:"center",gap:4,fontSize:12}}>
+                        <i className="ti ti-file-download" style={{fontSize:16,color:"#2563eb"}}/>
+                      </button>
                     </td>
                     {!ro&&<td className="dt-td">
                       {editing?(
@@ -665,28 +679,39 @@ function TypesView({orderTypes,onAddDoc}){
           </div>
           {expanded===ot.id&&(
             <div style={{borderTop:"1px solid #f1f5f9"}}>
-              <table className="dt-table">
-                <thead><tr><th className="dt-th">Category</th><th className="dt-th">Document</th><th className="dt-th">Required</th></tr></thead>
-                <tbody>
-                  {ot.docs.map((d,i)=>(
-                    <tr key={d.id} className={i===ot.docs.length-1?"dt-tr-last":""}>
-                      <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{d.category||"—"}</td>
-                      <td className="dt-td">{d.name}</td>
-                      <td className="dt-td">{d.required?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>:<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}</td>
-                    </tr>
-                  ))}
-                  <tr style={{background:"#fafafa"}}>
-                    <td className="dt-td"><input value={docCat} onChange={e=>setDocCat(e.target.value)} placeholder="Category&#x2026;" style={{fontSize:12,width:"90%"}}/></td>
-                    <td className="dt-td"><input value={docName} onChange={e=>setDocName(e.target.value)} placeholder="Add document&#x2026;" style={{fontSize:12,width:"90%"}}/></td>
-                    <td className="dt-td" style={{display:"flex",alignItems:"center",gap:8,borderBottom:"none"}}>
-                      <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#64748b",cursor:"pointer",whiteSpace:"nowrap"}}>
-                        <input type="checkbox" checked={docReq} onChange={e=>setDocReq(e.target.checked)} style={{width:"auto"}}/> Required
-                      </label>
-                      <button onClick={()=>{if(docName.trim()){onAddDoc(ot.id,{name:docName.trim(),required:docReq,category:docCat.trim()||"General"});setDocName("");setDocCat("");}}} style={{fontSize:12,whiteSpace:"nowrap"}}>Add</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              {(()=>{
+                const cats=[...new Set(ot.docs.map(d=>d.category||"General"))];
+                return cats.map(cat=>{
+                  const catDocs=ot.docs.filter(d=>(d.category||"General")===cat);
+                  return(
+                    <div key={cat}>
+                      <div style={{padding:"8px 16px",background:"#f8fafc",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:11,fontWeight:600,color:"#475569",letterSpacing:".05em",textTransform:"uppercase"}}>{cat}</span>
+                        <span style={{fontSize:11,color:"#94a3b8"}}>{catDocs.length} doc{catDocs.length!==1?"s":""}</span>
+                      </div>
+                      <table className="dt-table">
+                        <tbody>
+                          {catDocs.map((d,i)=>(
+                            <tr key={d.id} className={i===catDocs.length-1?"dt-tr-last":""}>
+                              <td className="dt-td" style={{width:32,paddingLeft:28}}><i className="ti ti-file-text" style={{fontSize:14,color:"#94a3b8"}}/></td>
+                              <td className="dt-td" style={{fontWeight:500}}>{d.name}</td>
+                              <td className="dt-td">{d.required?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>:<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                });
+              })()}
+              <div style={{padding:"10px 16px",background:"#fafafa",borderTop:"1px solid #f1f5f9",display:"flex",gap:8,alignItems:"center"}}>
+                <input value={docCat} onChange={e=>setDocCat(e.target.value)} placeholder="Category&#x2026;" style={{fontSize:12,flex:"0 0 160px"}}/>
+                <input value={docName} onChange={e=>setDocName(e.target.value)} placeholder="Document name&#x2026;" style={{fontSize:12,flex:1}}/>
+                <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#64748b",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                  <input type="checkbox" checked={docReq} onChange={e=>setDocReq(e.target.checked)} style={{width:"auto"}}/> Required
+                </label>
+                <button onClick={()=>{if(docName.trim()){onAddDoc(ot.id,{name:docName.trim(),required:docReq,category:docCat.trim()||"General"});setDocName("");setDocCat("");}}} style={{fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>Add</button>
+              </div>
             </div>
           )}
         </div>
