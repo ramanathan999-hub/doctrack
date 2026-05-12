@@ -138,6 +138,7 @@ button:hover{background:#f8fafc}
 <div id="root"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5/papaparse.min.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -719,22 +720,22 @@ function Dashboard({onNav}){
   );
 }
 
-function OrdersList({onSelect}){
+function OrdersList({onSelect,showToast,canEdit}){
   const[orders,setOrders]=useState([]);
   const[loading,setLoading]=useState(true);
   const[search,setSearch]=useState("");
   const[sf,setSf]=useState("All");
-  useEffect(()=>{
-    async function load(){
-      const{data}=await sb.from('orders')
-        .select('order_number,customer_name,destination_country,status,progress_pct')
-        .order('created_at',{ascending:false});
-      if(data&&data.length>0){setOrders(data);}
-      else{setOrders(SEED_ORDERS.map(o=>({order_number:o.id,customer_name:o.customer,destination_country:null,status:o.orderStatus,progress_pct:getProgress(o,SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId)).pct})));}
-      setLoading(false);
-    }
-    load();
-  },[]);
+  const[csvModal,setCsvModal]=useState(false);
+  useEffect(()=>{load();},[]);
+  async function load(){
+    setLoading(true);
+    const{data}=await sb.from('orders')
+      .select('order_number,customer_name,destination_country,status,progress_pct')
+      .order('created_at',{ascending:false});
+    if(data&&data.length>0){setOrders(data);}
+    else{setOrders(SEED_ORDERS.map(o=>({order_number:o.id,customer_name:o.customer,destination_country:null,status:o.orderStatus,progress_pct:getProgress(o,SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId)).pct})));}
+    setLoading(false);
+  }
   const filtered=orders.filter(o=>{
     const ms=!search||
       (o.customer_name||'').toLowerCase().includes(search.toLowerCase())||
@@ -753,7 +754,11 @@ function OrdersList({onSelect}){
           <option value="All">All statuses</option>
           {ORDER_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
         </select>
+        {canEdit&&<button onClick={()=>setCsvModal(true)} style={{display:"flex",alignItems:"center",gap:5,fontSize:13,whiteSpace:"nowrap"}}>
+          <i className="ti ti-file-spreadsheet"/>Import CSV
+        </button>}
       </div>
+      {csvModal&&<CsvImportModal onClose={()=>setCsvModal(false)} showToast={showToast} onImported={()=>{setCsvModal(false);load();}}/>}
       <div className="dt-card">
         <table className="dt-table">
           <thead><tr>{["Order Number","Customer","Destination","Progress","Status",""].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
@@ -1345,6 +1350,137 @@ function CreateTypeModal({onClose,onCreate}){
   );
 }
 
+function CsvImportModal({onClose,onImported,showToast}){
+  const[step,setStep]=useState('upload'); // upload | preview | importing | done
+  const[rows,setRows]=useState([]);
+  const[errors,setErrors]=useState([]);
+  const[progress,setProgress]=useState(0);
+  const fileRef=useRef(null);
+  const REQUIRED_COLS=['customer','destination'];
+  const OPTIONAL_COLS=['ref','incoterms','due_date'];
+
+  function parseFile(e){
+    const file=e.target.files[0];
+    if(!file)return;
+    Papa.parse(file,{
+      header:true,skipEmptyLines:true,
+      complete:({data,meta})=>{
+        const missing=REQUIRED_COLS.filter(c=>!meta.fields.map(f=>f.toLowerCase().trim()).includes(c));
+        if(missing.length>0){setErrors([`Missing required columns: ${missing.join(', ')}`]);return;}
+        const normalised=data.map((r,i)=>{
+          const norm={};
+          Object.keys(r).forEach(k=>{norm[k.toLowerCase().trim()]=r[k];});
+          return{...norm,_row:i+2};
+        });
+        const errs=[];
+        normalised.forEach(r=>{
+          if(!r.customer)errs.push(`Row ${r._row}: customer is empty`);
+          if(!r.destination)errs.push(`Row ${r._row}: destination is empty`);
+        });
+        setErrors(errs);
+        setRows(normalised);
+        setStep('preview');
+      },
+      error:(err)=>setErrors([err.message])
+    });
+  }
+
+  async function doImport(){
+    const validRows=rows.filter(r=>r.customer&&r.destination);
+    if(validRows.length===0){showToast('No valid rows to import',false);return;}
+    setStep('importing');setProgress(0);
+    const{count}=await sb.from('orders').select('*',{count:'exact',head:true});
+    let base=count||0;
+    let imported=0;
+    for(const r of validRows){
+      const orderNumber=`SHP-${new Date().getFullYear()}-${String(++base).padStart(3,'0')}`;
+      const{data:newOrder,error}=await sb.from('orders').insert({
+        order_number:orderNumber,
+        customer_name:r.customer,
+        destination_country:r.destination,
+        incoterms:r.incoterms||'CIF',
+        due_date:r.due_date||null,
+        status:'New',
+        progress_pct:0,
+        ready_to_ship:false
+      }).select().single();
+      if(!error&&newOrder){
+        const docs=getRequiredDocs(r.destination);
+        await sb.from('checklist_items').insert(docs.map(d=>({
+          order_id:newOrder.id,
+          order_number:orderNumber,
+          category:d.category,
+          document_type:d.docType,
+          source:d.source,
+          status:'Pending',
+          expected:2,found:0
+        })));
+        imported++;
+      }
+      setProgress(Math.round((imported/validRows.length)*100));
+    }
+    setStep('done');
+    showToast(`${imported} order${imported!==1?'s':''} imported`);
+    onImported();
+  }
+
+  return(
+    <ModalWrap title="Import orders from CSV" onClose={onClose}>
+      {step==='upload'&&(
+        <>
+          <div style={{border:'2px dashed #e2e8f0',borderRadius:8,padding:'28px 20px',textAlign:'center',marginBottom:14,cursor:'pointer',background:'#fafafa'}} onClick={()=>fileRef.current.click()}>
+            <i className="ti ti-file-spreadsheet" style={{fontSize:32,color:'#94a3b8',display:'block',marginBottom:8}}/>
+            <div style={{fontSize:13,fontWeight:500,color:'#475569'}}>Click to choose a CSV file</div>
+            <div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>Required columns: <strong>customer</strong>, <strong>destination</strong></div>
+            <div style={{fontSize:11,color:'#94a3b8'}}>Optional: ref, incoterms, due_date</div>
+          </div>
+          <input ref={fileRef} type="file" accept=".csv" style={{display:'none'}} onChange={parseFile}/>
+          {errors.length>0&&<div style={{fontSize:12,color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'8px 10px',marginBottom:12}}>{errors.map((e,i)=><div key={i}>{e}</div>)}</div>}
+          <div style={{fontSize:11,color:'#94a3b8',background:'#f8fafc',borderRadius:6,padding:'8px 10px',fontFamily:"'JetBrains Mono',monospace"}}>
+            customer,destination,ref,incoterms,due_date<br/>
+            "Acme Corp",Turkey,REF-001,CIF,2026-07-01
+          </div>
+          <div className="dt-modal-actions" style={{marginTop:14}}><button onClick={onClose}>Cancel</button></div>
+        </>
+      )}
+      {step==='preview'&&(
+        <>
+          {errors.length>0&&<div style={{fontSize:12,color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'8px 10px',marginBottom:12}}>{errors.map((e,i)=><div key={i}>{e}</div>)}</div>}
+          <div style={{fontSize:13,color:'#475569',marginBottom:10}}>{rows.filter(r=>r.customer&&r.destination).length} valid order{rows.filter(r=>r.customer&&r.destination).length!==1?'s':''} to import</div>
+          <div style={{maxHeight:200,overflowY:'auto',border:'1px solid #e2e8f0',borderRadius:6,marginBottom:14}}>
+            <table className="dt-table">
+              <thead><tr><th className="dt-th">Customer</th><th className="dt-th">Destination</th><th className="dt-th">Incoterms</th><th className="dt-th">Due date</th></tr></thead>
+              <tbody>
+                {rows.slice(0,20).map((r,i)=>(<tr key={i} className={i===Math.min(rows.length,20)-1?'dt-tr-last':''}><td className="dt-td">{r.customer||<span style={{color:'#dc2626'}}>missing</span>}</td><td className="dt-td">{r.destination||<span style={{color:'#dc2626'}}>missing</span>}</td><td className="dt-td" style={{color:'#64748b'}}>{r.incoterms||'CIF'}</td><td className="dt-td mono" style={{fontSize:11,color:'#64748b'}}>{r.due_date||'—'}</td></tr>))}
+              </tbody>
+            </table>
+          </div>
+          <div className="dt-modal-actions">
+            <button onClick={()=>{setStep('upload');setErrors([]);setRows([]);}}>Back</button>
+            <button onClick={doImport} disabled={rows.filter(r=>r.customer&&r.destination).length===0} className="dt-btn-primary">Import {rows.filter(r=>r.customer&&r.destination).length} orders</button>
+          </div>
+        </>
+      )}
+      {step==='importing'&&(
+        <div style={{textAlign:'center',padding:'20px 0'}}>
+          <i className="ti ti-loader-2" style={{fontSize:28,color:'#2563eb',display:'block',marginBottom:10}}/>
+          <div style={{fontSize:13,color:'#475569',marginBottom:12}}>Importing orders&#x2026; {progress}%</div>
+          <div style={{height:6,background:'#f1f5f9',borderRadius:3,overflow:'hidden'}}>
+            <div style={{height:'100%',width:`${progress}%`,background:'#2563eb',transition:'width .3s',borderRadius:3}}/>
+          </div>
+        </div>
+      )}
+      {step==='done'&&(
+        <div style={{textAlign:'center',padding:'20px 0'}}>
+          <i className="ti ti-circle-check" style={{fontSize:36,color:'#16a34a',display:'block',marginBottom:10}}/>
+          <div style={{fontSize:14,fontWeight:500,color:'#0f172a',marginBottom:16}}>Import complete</div>
+          <button onClick={onClose} className="dt-btn-primary">Close</button>
+        </div>
+      )}
+    </ModalWrap>
+  );
+}
+
 function KVKSearch(){
   const[q,setQ]=useState("");
   const[results,setResults]=useState(null);
@@ -1567,7 +1703,7 @@ function App(){
         </div>
         <div className="dt-content">
           {view==="dashboard"&&<Dashboard onNav={(v,id)=>nav(v,id)}/>}
-          {view==="orders"&&<OrdersList onSelect={id=>nav("order-detail",id)}/>}
+          {view==="orders"&&<OrdersList onSelect={id=>nav("order-detail",id)} showToast={showToast} canEdit={canEdit(user.role)}/>}
           {view==="order-detail"&&orderId&&(
             <OrderDetail orderId={orderId} currentUser={user} showToast={showToast} onBack={()=>nav("orders")}/>
           )}
