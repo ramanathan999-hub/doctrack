@@ -414,57 +414,67 @@ function DonutChart({segments,size=130}){
 }
 
 function Dashboard({onNav}){
-  const[data,setData]=useState(null);
+  const[orders,setOrders]=useState(null);
+  const[allItems,setAllItems]=useState([]);
   const[period,setPeriod]=useState('all');
+
   useEffect(()=>{
     async function load(){
-      const{data:orders}=await sb.from('orders')
-        .select('order_number,customer_name,destination_country,status,progress_pct,ready_to_ship,created_at')
-        .order('created_at',{ascending:false});
-      if(!orders||orders.length===0){
-        const missingDocs=SEED_ORDERS.filter(o=>{const ot=SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId);if(!ot)return false;const req=ot.docs.filter(d=>d.required).map(d=>d.id);return o.documents.some(d=>req.includes(d.docId)&&d.status!=="Verified"&&d.status!=="Waived");}).length;
-        const so=SEED_ORDERS.map(o=>({order_number:o.id,customer_name:o.customer,destination_country:null,status:o.orderStatus,progress_pct:getProgress(o,SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId)).pct,ready_to_ship:false}));
-        setData({orders:so,total:so.length,inProgress:so.filter(o=>o.status==="In Progress").length,complete:so.filter(o=>o.status==="Complete").length,missingDocs,byStatus:{"New":so.filter(o=>o.status==="New").length,"In Progress":so.filter(o=>o.status==="In Progress").length,"On Hold":so.filter(o=>o.status==="On Hold").length,"Complete":so.filter(o=>o.status==="Complete").length}});
-      } else {
-        const by={"New":0,"In Progress":0,"On Hold":0,"Complete":0};
-        orders.forEach(o=>{if(by[o.status]!==undefined)by[o.status]++;});
-        setData({orders,total:orders.length,inProgress:by["In Progress"],complete:by["Complete"],missingDocs:orders.filter(o=>!o.ready_to_ship&&o.status!=="Complete").length,byStatus:by});
-      }
+      const[{data:ords},{data:its}]=await Promise.all([
+        sb.from('orders').select('order_number,customer_name,destination_country,status,progress_pct,ready_to_ship,created_at,checked_at').order('created_at',{ascending:false}),
+        sb.from('checklist_items').select('order_number,document_type,status')
+      ]);
+      setOrders(ords||[]);
+      setAllItems(its||[]);
     }
     load();
   },[]);
 
-  if(!data)return<div style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:13}}>Loading&#x2026;</div>;
+  if(orders===null)return<div style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:13}}>Loading&#x2026;</div>;
 
-  const filterOrders=(orders)=>{
-    if(period==='all')return orders;
-    const cutoff=new Date();
-    if(period==='week')cutoff.setDate(cutoff.getDate()-7);
-    if(period==='month')cutoff.setMonth(cutoff.getMonth()-1);
-    return orders.filter(o=>new Date(o.created_at)>=cutoff);
-  };
-  const filtered=filterOrders(data.orders);
-  const fBy={"New":0,"In Progress":0,"On Hold":0,"Complete":0};
-  filtered.forEach(o=>{if(fBy[o.status]!==undefined)fBy[o.status]++;});
-  const fStats={total:filtered.length,inProgress:fBy["In Progress"],complete:fBy["Complete"],missingDocs:filtered.filter(o=>!o.ready_to_ship&&o.status!=="Complete").length};
+  const cutoff=period==='all'?null:(()=>{const d=new Date();if(period==='week')d.setDate(d.getDate()-7);else d.setMonth(d.getMonth()-1);return d;})();
+  const filtered=cutoff?orders.filter(o=>new Date(o.created_at)>=cutoff):orders;
+  const filteredNums=new Set(filtered.map(o=>o.order_number));
+
+  const byStatus={"New":0,"In Progress":0,"On Hold":0,"Complete":0};
+  filtered.forEach(o=>{if(byStatus[o.status]!==undefined)byStatus[o.status]++;});
+
+  const done=filtered.filter(o=>o.status==='Complete'&&o.checked_at&&o.created_at);
+  const avgDays=done.length>0
+    ?Math.round(done.reduce((s,o)=>s+(new Date(o.checked_at)-new Date(o.created_at))/86400000,0)/done.length)
+    :null;
+
+  const DONE_S=new Set(['Verified','Waived','Complete','Received']);
+  const gapMap={};
+  allItems.filter(i=>filteredNums.has(i.order_number)).forEach(i=>{
+    const t=i.document_type||'Unknown';
+    if(!gapMap[t])gapMap[t]={total:0,pending:0};
+    gapMap[t].total++;
+    if(!DONE_S.has(i.status))gapMap[t].pending++;
+  });
+  const docGaps=Object.entries(gapMap)
+    .map(([t,v])=>({type:t,...v}))
+    .filter(x=>x.pending>0)
+    .sort((a,b)=>b.pending-a.pending)
+    .slice(0,8);
+  const maxPending=docGaps.length>0?docGaps[0].pending:1;
 
   const donut=[
-    {label:"Complete",   v:fBy["Complete"],   color:"#16a34a"},
-    {label:"In Progress",v:fBy["In Progress"],color:"#2563eb"},
-    {label:"On Hold",    v:fBy["On Hold"],    color:"#d97706"},
-    {label:"New",        v:fBy["New"],        color:"#cbd5e1"},
+    {label:"Complete",   v:byStatus["Complete"],   color:"#16a34a"},
+    {label:"In Progress",v:byStatus["In Progress"],color:"#2563eb"},
+    {label:"On Hold",    v:byStatus["On Hold"],    color:"#d97706"},
+    {label:"New",        v:byStatus["New"],        color:"#cbd5e1"},
   ].filter(s=>s.v>0);
 
   const statCards=[
-    {label:"Total orders",  val:fStats.total,       icon:"ti-clipboard-list", color:"#0f172a", accent:"#f1f5f9"},
-    {label:"In progress",   val:fStats.inProgress,  icon:"ti-clock",          color:"#2563eb", accent:"#dbeafe"},
-    {label:"Complete",      val:fStats.complete,    icon:"ti-circle-check",   color:"#16a34a", accent:"#dcfce7"},
-    {label:"Awaiting docs", val:fStats.missingDocs, icon:"ti-file-alert",     color:"#d97706", accent:"#fef3c7"},
+    {label:"Total orders",  val:filtered.length,         icon:"ti-clipboard-list", color:"#0f172a",accent:"#f1f5f9"},
+    {label:"In progress",   val:byStatus["In Progress"], icon:"ti-clock",          color:"#2563eb",accent:"#dbeafe"},
+    {label:"Complete",      val:byStatus["Complete"],    icon:"ti-circle-check",   color:"#16a34a",accent:"#dcfce7"},
+    {label:"Avg lead time", val:avgDays!=null?`${avgDays}d`:"—",icon:"ti-calendar-stats",color:"#7c3aed",accent:"#ede9fe"},
   ];
 
   return(
     <div>
-      {/* Period filter */}
       <div style={{display:"flex",gap:6,marginBottom:14}}>
         {[['all','All time'],['month','This month'],['week','This week']].map(([p,label])=>(
           <button key={p} onClick={()=>setPeriod(p)} style={{fontSize:11,padding:"4px 12px",borderRadius:6,background:period===p?"#0f172a":"#fff",color:period===p?"#fff":"#64748b",border:`1px solid ${period===p?"#0f172a":"#e2e8f0"}`,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
@@ -473,7 +483,6 @@ function Dashboard({onNav}){
         ))}
       </div>
 
-      {/* Stat cards */}
       <div className="dt-stat-grid" style={{marginBottom:16}}>
         {statCards.map(s=>(
           <div key={s.label} className="dt-stat" style={{borderTop:`3px solid ${s.accent}`,padding:"14px 16px"}}>
@@ -490,19 +499,17 @@ function Dashboard({onNav}){
         ))}
       </div>
 
-      {/* Charts row */}
       <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:12,marginBottom:12}}>
-        {/* Donut */}
         <div className="dt-card" style={{padding:"16px 18px"}}>
           <div style={{fontSize:13,fontWeight:500,color:"#0f172a",marginBottom:14}}>Status breakdown</div>
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:14}}>
             <DonutChart segments={donut} size={130}/>
             <div style={{width:"100%"}}>
               {[
-                {label:"Complete",   color:"#16a34a", v:fBy["Complete"]},
-                {label:"In Progress",color:"#2563eb", v:fBy["In Progress"]},
-                {label:"On Hold",    color:"#d97706", v:fBy["On Hold"]},
-                {label:"New",        color:"#cbd5e1", v:fBy["New"]},
+                {label:"Complete",   color:"#16a34a",v:byStatus["Complete"]},
+                {label:"In Progress",color:"#2563eb",v:byStatus["In Progress"]},
+                {label:"On Hold",    color:"#d97706",v:byStatus["On Hold"]},
+                {label:"New",        color:"#cbd5e1",v:byStatus["New"]},
               ].map(s=>(
                 <div key={s.label} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
                   <div style={{width:9,height:9,borderRadius:"50%",background:s.color,flexShrink:0}}/>
@@ -514,37 +521,31 @@ function Dashboard({onNav}){
           </div>
         </div>
 
-        {/* Progress bars */}
         <div className="dt-card" style={{padding:"16px 20px"}}>
-          <div style={{fontSize:13,fontWeight:500,color:"#0f172a",marginBottom:16}}>Document completion by order</div>
-          <div>
-            {filtered.slice(0,7).map(o=>{
-              const pct=o.progress_pct||0;
-              const color=pct===100?"#16a34a":pct>=50?"#2563eb":pct>0?"#d97706":"#e2e8f0";
-              const badgeCfg=ORDER_BADGE[o.status]||{bg:"#f1f5f9",color:"#64748b"};
-              return(
-                <div key={o.order_number} style={{marginBottom:11}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                    <div style={{minWidth:0,flex:1,marginRight:12}}>
-                      <span style={{fontSize:12,color:"#0f172a",fontWeight:500,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.customer_name}</span>
-                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:1}}>
-                        <span style={{fontSize:10,color:"#94a3b8",fontFamily:"'JetBrains Mono',monospace"}}>{o.order_number}</span>
-                        <span style={{fontSize:10,fontWeight:500,padding:"1px 5px",borderRadius:3,background:badgeCfg.bg,color:badgeCfg.color}}>{o.status}</span>
-                      </div>
+          <div style={{fontSize:13,fontWeight:500,color:"#0f172a",marginBottom:16}}>Most incomplete document types</div>
+          {docGaps.length===0
+            ?<div style={{color:"#94a3b8",fontSize:13,textAlign:"center",paddingTop:20}}>No pending documents</div>
+            :<div>
+              {docGaps.map(({type,total,pending})=>{
+                const pct=Math.round((pending/total)*100);
+                const color=pct>70?"#dc2626":pct>40?"#d97706":"#2563eb";
+                return(
+                  <div key={type} style={{marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                      <span style={{fontSize:12,color:"#1e293b",flex:1,marginRight:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{type}</span>
+                      <span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color,flexShrink:0,fontWeight:600}}>{pending}/{total} pending</span>
                     </div>
-                    <span style={{fontSize:12,fontWeight:700,color:color,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{pct}%</span>
+                    <div style={{height:6,background:"#f1f5f9",borderRadius:3,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${(pending/maxPending)*100}%`,background:color,borderRadius:3,transition:"width .4s"}}/>
+                    </div>
                   </div>
-                  <div style={{height:5,background:"#f1f5f9",borderRadius:3,overflow:"hidden"}}>
-                    <div style={{height:"100%",width:`${pct}%`,background:color,borderRadius:3,transition:"width .4s"}}/>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          }
         </div>
       </div>
 
-      {/* Recent orders */}
       <div className="dt-card">
         <div className="dt-section-hdr">
           Recent orders
@@ -553,9 +554,9 @@ function Dashboard({onNav}){
         <table className="dt-table">
           <thead><tr>{["Order","Customer","Destination","Progress","Status"].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
           <tbody>
-            {filtered.slice(0,5).map((o,i)=>(
-              <tr key={o.order_number} className={`dt-tr-click${i===4||i===data.orders.slice(0,5).length-1?" dt-tr-last":""}`} onClick={()=>onNav("orders")}>
-                <td className="dt-td mono" style={{fontSize:11,color:"#2563eb"}}>{o.order_number}</td>
+            {filtered.slice(0,5).map((o,i,arr)=>(
+              <tr key={o.order_number} className={`dt-tr-click${i===arr.length-1?" dt-tr-last":""}`} onClick={()=>onNav("orders")}>
+                <td className="dt-td" style={{fontSize:11,color:"#2563eb",fontFamily:"'JetBrains Mono',monospace"}}>{o.order_number}</td>
                 <td className="dt-td" style={{fontWeight:500}}>{o.customer_name}</td>
                 <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{o.destination_country||"—"}</td>
                 <td className="dt-td"><Progress pct={o.progress_pct||0}/></td>
