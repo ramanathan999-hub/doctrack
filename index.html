@@ -380,63 +380,156 @@ function Sidebar({user,view,onNav,onLogout}){
   );
 }
 
+function DonutChart({segments,size=130}){
+  const total=segments.reduce((s,d)=>s+d.v,0);
+  if(!total)return null;
+  const cx=size/2,cy=size/2,R=size*0.43,r=size*0.27;
+  let angle=-Math.PI/2;
+  const paths=segments.map(d=>{
+    const sweep=(d.v/total)*2*Math.PI;
+    const end=angle+sweep;
+    const lg=sweep>Math.PI?1:0;
+    const [c1,s1,c2,s2]=[Math.cos(angle),Math.sin(angle),Math.cos(end),Math.sin(end)];
+    const path=`M${cx+R*c1} ${cy+R*s1} A${R} ${R} 0 ${lg} 1 ${cx+R*c2} ${cy+R*s2} L${cx+r*c2} ${cy+r*s2} A${r} ${r} 0 ${lg} 0 ${cx+r*c1} ${cy+r*s1}Z`;
+    angle=end;
+    return{...d,path};
+  });
+  return(
+    <svg width={size} height={size} style={{flexShrink:0}}>
+      {paths.map(p=><path key={p.label} d={p.path} fill={p.color} stroke="#fff" strokeWidth={2}/>)}
+      <text x={cx} y={cy-5} textAnchor="middle" fontSize={size*0.18} fontWeight={600} fill="#0f172a" fontFamily="DM Sans,sans-serif">{total}</text>
+      <text x={cx} y={cy+11} textAnchor="middle" fontSize={size*0.08} fill="#94a3b8" fontFamily="JetBrains Mono,monospace" letterSpacing="0.08em">ORDERS</text>
+    </svg>
+  );
+}
+
 function Dashboard({onNav}){
-  const[stats,setStats]=useState({total:0,inProgress:0,complete:0,missingDocs:0,loading:true});
-  const[recent,setRecent]=useState([]);
+  const[data,setData]=useState(null);
   useEffect(()=>{
     async function load(){
-      const[a,b,c,d,e]=await Promise.all([
-        sb.from('orders').select('*',{count:'exact',head:true}),
-        sb.from('orders').select('*',{count:'exact',head:true}).eq('status','In Progress'),
-        sb.from('orders').select('*',{count:'exact',head:true}).eq('status','Complete'),
-        sb.from('orders').select('*',{count:'exact',head:true}).eq('ready_to_ship',false),
-        sb.from('orders').select('order_number,customer_name,destination_country,status,progress_pct').order('created_at',{ascending:false}).limit(5)
-      ]);
-      if((a.count||0)===0){
+      const{data:orders}=await sb.from('orders')
+        .select('order_number,customer_name,destination_country,status,progress_pct,ready_to_ship')
+        .order('created_at',{ascending:false});
+      if(!orders||orders.length===0){
         const missingDocs=SEED_ORDERS.filter(o=>{const ot=SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId);if(!ot)return false;const req=ot.docs.filter(d=>d.required).map(d=>d.id);return o.documents.some(d=>req.includes(d.docId)&&d.status!=="Verified"&&d.status!=="Waived");}).length;
-        setStats({total:SEED_ORDERS.length,inProgress:SEED_ORDERS.filter(o=>o.orderStatus==="In Progress").length,complete:SEED_ORDERS.filter(o=>o.orderStatus==="Complete").length,missingDocs,loading:false});
-        setRecent(SEED_ORDERS.slice(0,5).map(o=>({order_number:o.id,customer_name:o.customer,destination_country:null,status:o.orderStatus,progress_pct:getProgress(o,SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId)).pct})));
+        const so=SEED_ORDERS.map(o=>({order_number:o.id,customer_name:o.customer,destination_country:null,status:o.orderStatus,progress_pct:getProgress(o,SEED_ORDER_TYPES.find(t=>t.id===o.orderTypeId)).pct,ready_to_ship:false}));
+        setData({orders:so,total:so.length,inProgress:so.filter(o=>o.status==="In Progress").length,complete:so.filter(o=>o.status==="Complete").length,missingDocs,byStatus:{"New":so.filter(o=>o.status==="New").length,"In Progress":so.filter(o=>o.status==="In Progress").length,"On Hold":so.filter(o=>o.status==="On Hold").length,"Complete":so.filter(o=>o.status==="Complete").length}});
       } else {
-        setStats({total:a.count||0,inProgress:b.count||0,complete:c.count||0,missingDocs:d.count||0,loading:false});
-        setRecent(e.data||[]);
+        const by={"New":0,"In Progress":0,"On Hold":0,"Complete":0};
+        orders.forEach(o=>{if(by[o.status]!==undefined)by[o.status]++;});
+        setData({orders,total:orders.length,inProgress:by["In Progress"],complete:by["Complete"],missingDocs:orders.filter(o=>!o.ready_to_ship&&o.status!=="Complete").length,byStatus:by});
       }
     }
     load();
   },[]);
+
+  if(!data)return<div style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:13}}>Loading&#x2026;</div>;
+
+  const donut=[
+    {label:"Complete",   v:data.byStatus["Complete"],   color:"#16a34a"},
+    {label:"In Progress",v:data.byStatus["In Progress"],color:"#2563eb"},
+    {label:"On Hold",    v:data.byStatus["On Hold"],    color:"#d97706"},
+    {label:"New",        v:data.byStatus["New"],        color:"#cbd5e1"},
+  ].filter(s=>s.v>0);
+
+  const statCards=[
+    {label:"Total orders",   val:data.total,       icon:"ti-clipboard-list", color:"#0f172a", accent:"#f1f5f9"},
+    {label:"In progress",    val:data.inProgress,  icon:"ti-clock",          color:"#2563eb", accent:"#dbeafe"},
+    {label:"Complete",       val:data.complete,    icon:"ti-circle-check",   color:"#16a34a", accent:"#dcfce7"},
+    {label:"Awaiting docs",  val:data.missingDocs, icon:"ti-file-alert",     color:"#d97706", accent:"#fef3c7"},
+  ];
+
   return(
     <div>
-      <div className="dt-stat-grid">
-        {[
-          {label:"Total orders",val:stats.total,icon:"ti-clipboard-list",color:"#0f172a"},
-          {label:"In progress",val:stats.inProgress,icon:"ti-clock",color:"#1d4ed8"},
-          {label:"Complete",val:stats.complete,icon:"ti-check",color:"#15803d"},
-          {label:"Missing docs",val:stats.missingDocs,icon:"ti-file-alert",color:"#b45309"}
-        ].map(s=>(
-          <div key={s.label} className="dt-stat">
-            <div className="dt-stat-label"><i className={`ti ${s.icon}`}/> {s.label}</div>
-            <div className="dt-stat-val" style={{color:s.color}}>{stats.loading?"—":s.val}</div>
+      {/* Stat cards */}
+      <div className="dt-stat-grid" style={{marginBottom:16}}>
+        {statCards.map(s=>(
+          <div key={s.label} className="dt-stat" style={{borderTop:`3px solid ${s.accent}`,padding:"14px 16px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div>
+                <div className="dt-stat-label" style={{marginBottom:6}}>{s.label}</div>
+                <div style={{fontSize:34,fontWeight:600,color:s.color,lineHeight:1}}>{s.val}</div>
+              </div>
+              <div style={{width:38,height:38,borderRadius:9,background:s.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <i className={`ti ${s.icon}`} style={{fontSize:19,color:s.color}}/>
+              </div>
+            </div>
           </div>
         ))}
       </div>
+
+      {/* Charts row */}
+      <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:12,marginBottom:12}}>
+        {/* Donut */}
+        <div className="dt-card" style={{padding:"16px 18px"}}>
+          <div style={{fontSize:13,fontWeight:500,color:"#0f172a",marginBottom:14}}>Status breakdown</div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:14}}>
+            <DonutChart segments={donut} size={130}/>
+            <div style={{width:"100%"}}>
+              {[
+                {label:"Complete",   color:"#16a34a", v:data.byStatus["Complete"]},
+                {label:"In Progress",color:"#2563eb", v:data.byStatus["In Progress"]},
+                {label:"On Hold",    color:"#d97706", v:data.byStatus["On Hold"]},
+                {label:"New",        color:"#cbd5e1", v:data.byStatus["New"]},
+              ].map(s=>(
+                <div key={s.label} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                  <div style={{width:9,height:9,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                  <span style={{fontSize:12,color:"#475569",flex:1}}>{s.label}</span>
+                  <span style={{fontSize:12,fontWeight:600,color:"#0f172a",fontFamily:"'JetBrains Mono',monospace"}}>{s.v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Progress bars */}
+        <div className="dt-card" style={{padding:"16px 20px"}}>
+          <div style={{fontSize:13,fontWeight:500,color:"#0f172a",marginBottom:16}}>Document completion by order</div>
+          <div>
+            {data.orders.slice(0,7).map(o=>{
+              const pct=o.progress_pct||0;
+              const color=pct===100?"#16a34a":pct>=50?"#2563eb":pct>0?"#d97706":"#e2e8f0";
+              const badgeCfg=ORDER_BADGE[o.status]||{bg:"#f1f5f9",color:"#64748b"};
+              return(
+                <div key={o.order_number} style={{marginBottom:11}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <div style={{minWidth:0,flex:1,marginRight:12}}>
+                      <span style={{fontSize:12,color:"#0f172a",fontWeight:500,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.customer_name}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:1}}>
+                        <span style={{fontSize:10,color:"#94a3b8",fontFamily:"'JetBrains Mono',monospace"}}>{o.order_number}</span>
+                        <span style={{fontSize:10,fontWeight:500,padding:"1px 5px",borderRadius:3,background:badgeCfg.bg,color:badgeCfg.color}}>{o.status}</span>
+                      </div>
+                    </div>
+                    <span style={{fontSize:12,fontWeight:700,color:color,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{pct}%</span>
+                  </div>
+                  <div style={{height:5,background:"#f1f5f9",borderRadius:3,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${pct}%`,background:color,borderRadius:3,transition:"width .4s"}}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Recent orders */}
       <div className="dt-card">
-        <div className="dt-section-hdr">Recent orders</div>
+        <div className="dt-section-hdr">
+          Recent orders
+          <button onClick={()=>onNav("orders")} style={{fontSize:12,color:"#2563eb",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"'DM Sans',sans-serif"}}>View all →</button>
+        </div>
         <table className="dt-table">
           <thead><tr>{["Order","Customer","Destination","Progress","Status"].map(h=><th key={h} className="dt-th">{h}</th>)}</tr></thead>
           <tbody>
-            {stats.loading
-              ?<tr><td colSpan={5} style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>Loading&#x2026;</td></tr>
-              :recent.length===0
-                ?<tr><td colSpan={5} style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>No orders yet</td></tr>
-                :recent.map((o,i)=>(
-                  <tr key={o.order_number} className={`dt-tr-click${i===recent.length-1?" dt-tr-last":""}`} onClick={()=>onNav("orders")}>
-                    <td className="dt-td mono" style={{fontSize:12,color:"#2563eb"}}>{o.order_number}</td>
-                    <td className="dt-td" style={{fontWeight:500}}>{o.customer_name}</td>
-                    <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{o.destination_country||"&#x2014;"}</td>
-                    <td className="dt-td"><Progress pct={o.progress_pct||0}/></td>
-                    <td className="dt-td"><Badge label={o.status||"New"} cfg={ORDER_BADGE}/></td>
-                  </tr>
-                ))
-            }
+            {data.orders.slice(0,5).map((o,i)=>(
+              <tr key={o.order_number} className={`dt-tr-click${i===4||i===data.orders.slice(0,5).length-1?" dt-tr-last":""}`} onClick={()=>onNav("orders")}>
+                <td className="dt-td mono" style={{fontSize:11,color:"#2563eb"}}>{o.order_number}</td>
+                <td className="dt-td" style={{fontWeight:500}}>{o.customer_name}</td>
+                <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{o.destination_country||"—"}</td>
+                <td className="dt-td"><Progress pct={o.progress_pct||0}/></td>
+                <td className="dt-td"><Badge label={o.status||"New"} cfg={ORDER_BADGE}/></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
