@@ -610,21 +610,17 @@ function Dashboard({onNav}){
           {docGaps.length===0
             ?<div style={{color:"#94a3b8",fontSize:13,textAlign:"center",paddingTop:20}}>No pending documents</div>
             :<div>
-              {docGaps.map(({type,total,pending})=>{
-                const pct=Math.round((pending/total)*100);
-                const color=pct>70?"#dc2626":pct>40?"#d97706":"#2563eb";
-                return(
-                  <div key={type} style={{marginBottom:10}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
-                      <span style={{fontSize:12,color:"#1e293b",flex:1,marginRight:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{type}</span>
-                      <span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color,flexShrink:0,fontWeight:600}}>{pending}/{total} pending</span>
-                    </div>
-                    <div style={{height:6,background:"#f1f5f9",borderRadius:3,overflow:"hidden"}}>
-                      <div style={{height:"100%",width:`${(pending/maxPending)*100}%`,background:color,borderRadius:3,transition:"width .4s"}}/>
-                    </div>
+              {docGaps.map(({type,total,pending})=>(
+                <div key={type} style={{marginBottom:9}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                    <span style={{fontSize:12,color:"#475569",flex:1,marginRight:8,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{type}</span>
+                    <span style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#94a3b8",flexShrink:0}}>{pending}/{total}</span>
                   </div>
-                );
-              })}
+                  <div style={{height:4,background:"#f1f5f9",borderRadius:2,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${(pending/maxPending)*100}%`,background:"#cbd5e1",borderRadius:2,transition:"width .4s"}}/>
+                  </div>
+                </div>
+              ))}
             </div>
           }
         </div>
