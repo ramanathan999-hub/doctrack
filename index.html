@@ -339,9 +339,17 @@ function Login({users,onLogin}){
   const[un,setUn]=useState("");
   const[pw,setPw]=useState("");
   const[err,setErr]=useState("");
-  const go=()=>{
-    const u=users.find(u=>u.username===un&&u.password===pw&&u.active);
+  const[loading,setLoading]=useState(false);
+  const go=async()=>{
+    setLoading(true);setErr('');
+    if(un.includes('@')){
+      const{data,error}=await sb.auth.signInWithPassword({email:un,password:pw});
+      if(data?.user){setLoading(false);return;}
+      if(error&&error.status!==400)setErr(error.message);
+    }
+    const u=users.find(u=>(u.username===un||u.email===un)&&u.password===pw&&u.active);
     if(u)onLogin(u); else setErr("Invalid username or password.");
+    setLoading(false);
   };
   return(
     <div className="dt-login-page">
@@ -353,11 +361,11 @@ function Login({users,onLogin}){
             <div style={{fontSize:9,color:"#94a3b8",letterSpacing:".1em",fontFamily:"'JetBrains Mono',monospace"}}>DOCUMENT CHECKLIST SYSTEM</div>
           </div>
         </div>
-        <div className="dt-field"><label>Username</label><input value={un} onChange={e=>setUn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="username" autoFocus/></div>
+        <div className="dt-field"><label>Username or email</label><input value={un} onChange={e=>setUn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="username or email@company.com" autoFocus/></div>
         <div className="dt-field"><label>Password</label><input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;"/></div>
         {err&&<div style={{fontSize:12,color:"#b91c1c",marginBottom:10}}>{err}</div>}
-        <button onClick={go} className="dt-btn-primary" style={{width:"100%",justifyContent:"center",display:"flex",alignItems:"center",gap:6}}>
-          Sign in <i className="ti ti-arrow-right"/>
+        <button onClick={go} disabled={loading} className="dt-btn-primary" style={{width:"100%",justifyContent:"center",display:"flex",alignItems:"center",gap:6}}>
+          {loading?'Signing in…':'Sign in'} <i className="ti ti-arrow-right"/>
         </button>
         <div style={{marginTop:16,padding:"10px 12px",background:"#f8fafc",borderRadius:8,fontSize:11,color:"#64748b",lineHeight:1.9,fontFamily:"'JetBrains Mono',monospace"}}>
           admin / admin &middot; full access<br/>
@@ -1666,6 +1674,7 @@ function SharedView({token}){
 /* ── Main App ── */
 function App(){
   const[user,setUser]=useState(null);
+  const[sessionLoading,setSessionLoading]=useState(true);
   const[view,setView]=useState("login");
   const[orderId,setOrderId]=useState(null);
   const[orders,setOrders]=useState(SEED_ORDERS);
@@ -1675,12 +1684,29 @@ function App(){
   const[modal,setModal]=useState(null);
   const[sidebarOpen,setSidebarOpen]=useState(false);
 
+  useEffect(()=>{
+    function sbUserToAppUser(u){
+      const role=u.user_metadata?.role||'viewer';
+      return{id:u.id,name:u.user_metadata?.name||u.email,email:u.email,username:u.email,role,created:u.created_at?.slice(0,10)||''};
+    }
+    sb.auth.getSession().then(({data:{session}})=>{
+      if(session){setUser(sbUserToAppUser(session.user));setView('dashboard');}
+      setSessionLoading(false);
+    });
+    const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{
+      if(event==='SIGNED_IN'&&session){setUser(sbUserToAppUser(session.user));setView('dashboard');}
+      if(event==='SIGNED_OUT'){setUser(null);setView('login');}
+    });
+    return()=>subscription.unsubscribe();
+  },[]);
+
   const showToast=(msg,ok=true)=>{setToast({msg,ok});setTimeout(()=>setToast(null),2800);};
   const nav=(v,oid)=>{setView(v);if(oid!==undefined)setOrderId(oid);setModal(null);};
   const login=(u)=>{setUser(u);setView("dashboard");};
-  const logout=()=>{setUser(null);setView("login");setOrderId(null);};
+  const logout=()=>{sb.auth.signOut();setUser(null);setView("login");setOrderId(null);};
 
   if(SHARE_TOKEN) return <SharedView token={SHARE_TOKEN}/>;
+  if(sessionLoading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
   if(!user) return <Login users={users} onLogin={login}/>;
 
   const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","kvk-search":"KVK Company Search"};
