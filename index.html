@@ -413,6 +413,15 @@ function DonutChart({segments,size=130}){
   );
 }
 
+function expiryState(validUntil){
+  if(!validUntil)return null;
+  const days=Math.round((new Date(validUntil)-new Date())/86400000);
+  if(days<0)return{label:`Expired ${Math.abs(days)}d ago`,short:"Expired",color:"#dc2626",bg:"#fee2e2"};
+  if(days===0)return{label:"Expires today",short:"Today",color:"#dc2626",bg:"#fee2e2"};
+  if(days<=30)return{label:`Expires in ${days}d`,short:`${days}d`,color:"#d97706",bg:"#fef3c7"};
+  return{label:`Valid until ${validUntil}`,short:validUntil,color:"#16a34a",bg:"#dcfce7"};
+}
+
 function Dashboard({onNav}){
   const[orders,setOrders]=useState(null);
   const[allItems,setAllItems]=useState([]);
@@ -422,7 +431,7 @@ function Dashboard({onNav}){
     async function load(){
       const[{data:ords},{data:its}]=await Promise.all([
         sb.from('orders').select('order_number,customer_name,destination_country,status,progress_pct,ready_to_ship,created_at,checked_at').order('created_at',{ascending:false}),
-        sb.from('checklist_items').select('order_number,document_type,status')
+        sb.from('checklist_items').select('order_number,document_type,status,valid_until')
       ]);
       setOrders(ords||[]);
       setAllItems(its||[]);
@@ -458,6 +467,11 @@ function Dashboard({onNav}){
     .sort((a,b)=>b.pending-a.pending)
     .slice(0,8);
   const maxPending=docGaps.length>0?docGaps[0].pending:1;
+
+  const expiring=allItems.filter(i=>{
+    if(!i.valid_until||DONE_S.has(i.status))return false;
+    return(new Date(i.valid_until)-new Date())/86400000<=30;
+  });
 
   const donut=[
     {label:"Complete",   v:byStatus["Complete"],   color:"#16a34a"},
@@ -545,6 +559,28 @@ function Dashboard({onNav}){
           }
         </div>
       </div>
+
+      {expiring.length>0&&(
+        <div className="dt-card" style={{marginBottom:12,padding:"12px 16px",borderLeft:"3px solid #d97706",display:"flex",alignItems:"flex-start",gap:12}}>
+          <i className="ti ti-alert-triangle" style={{fontSize:18,color:"#d97706",flexShrink:0,marginTop:1}}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:500,color:"#92400e",marginBottom:8}}>
+              {expiring.length} document{expiring.length>1?"s":""} expiring or expired
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {expiring.slice(0,12).map(i=>{
+                const exp=expiryState(i.valid_until);
+                return(
+                  <span key={i.id||i.document_type+i.order_number} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:exp.bg,color:exp.color,fontWeight:500}}>
+                    {i.document_type} <span style={{opacity:.7}}>({i.order_number})</span> · {exp.short}
+                  </span>
+                );
+              })}
+              {expiring.length>12&&<span style={{fontSize:11,color:"#94a3b8",alignSelf:"center"}}>+{expiring.length-12} more</span>}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="dt-card">
         <div className="dt-section-hdr">
@@ -637,11 +673,13 @@ function OrdersList({onSelect}){
 function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[order,setOrder]=useState(null);
   const[items,setItems]=useState([]);
+  const[activity,setActivity]=useState([]);
   const[loading,setLoading]=useState(true);
   const[isSeed,setIsSeed]=useState(false);
   const[editId,setEditId]=useState(null);
   const[editStatus,setEditStatus]=useState('');
   const[editNotes,setEditNotes]=useState('');
+  const[editExpiry,setEditExpiry]=useState('');
   const ro=!canEdit(currentUser.role);
   const[uploading,setUploading]=useState(null);
   const[uploadTarget,setUploadTarget]=useState(null);
@@ -653,8 +691,11 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     setLoading(true);
     const{data:sbOrder}=await sb.from('orders').select('*').eq('order_number',orderId).maybeSingle();
     if(sbOrder){
-      const{data:sbItems}=await sb.from('checklist_items').select('*').eq('order_number',orderId).order('category');
-      setOrder(sbOrder);setItems(sbItems||[]);setIsSeed(false);
+      const[{data:sbItems},{data:sbAct}]=await Promise.all([
+        sb.from('checklist_items').select('*').eq('order_number',orderId).order('category'),
+        sb.from('order_activity').select('*').eq('order_number',orderId).order('created_at',{ascending:false}).limit(50)
+      ]);
+      setOrder(sbOrder);setItems(sbItems||[]);setActivity(sbAct||[]);setIsSeed(false);
     } else {
       const seed=SEED_ORDERS.find(o=>o.id===orderId);
       if(seed){
@@ -663,24 +704,43 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
         setItems(ot?ot.docs.map(def=>{const ds=seed.documents.find(d=>d.docId===def.id)||{status:"Pending",notes:""};return{id:def.id,document_type:def.name,category:def.category||"—",condition:def.required?"Always":"Conditional",status:ds.status,notes:ds.notes||""};}):[]);
         setIsSeed(true);
       }
+      setActivity([]);
     }
     setLoading(false);
   }
 
-  function startEdit(item){setEditId(item.id);setEditStatus(item.status||'Pending');setEditNotes(item.notes||'');}
+  async function logActivity(action,detail){
+    if(isSeed)return;
+    await sb.from('order_activity').insert({
+      order_number:order.order_number,
+      user_email:currentUser?.email||currentUser?.username||'unknown',
+      action,detail
+    });
+    const{data:fresh}=await sb.from('order_activity').select('*').eq('order_number',order.order_number).order('created_at',{ascending:false}).limit(50);
+    if(fresh)setActivity(fresh);
+  }
+
+  function startEdit(item){
+    setEditId(item.id);
+    setEditStatus(item.status||'Pending');
+    setEditNotes(item.notes||'');
+    setEditExpiry(item.valid_until||'');
+  }
 
   async function saveOverride(item){
-    const patch={status:editStatus,notes:editNotes};
+    const patch={status:editStatus,notes:editNotes,valid_until:editExpiry||null};
     if(!isSeed){
       const{error}=await sb.from('checklist_items').update(patch).eq('id',item.id);
       if(error){showToast('Save failed: '+error.message,false);return;}
     }
+    await logActivity('override',{doc_type:item.document_type,from:item.status,to:editStatus,notes:editNotes,expiry:editExpiry||null});
     setItems(p=>p.map(i=>i.id===item.id?{...i,...patch}:i));
     setEditId(null);showToast('Document updated');
   }
 
   async function submitDoc(item){
     if(!isSeed){await sb.from('checklist_items').update({status:'Received'}).eq('id',item.id);}
+    await logActivity('submit',{doc_type:item.document_type});
     setItems(p=>p.map(i=>i.id===item.id?{...i,status:'Received'}:i));
     showToast('Document submitted');
   }
@@ -699,6 +759,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
       const{error}=await sb.from('orders').update({status:newStatus,ready_to_ship:newStatus==="Complete"}).eq('order_number',order.order_number);
       if(error){showToast('Failed to update status',false);return;}
     }
+    await logActivity('order_status',{from:order.status,to:newStatus});
     setOrder(p=>({...p,status:newStatus,ready_to_ship:newStatus==="Complete"}));
     showToast('Order status updated');
   }
@@ -717,6 +778,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     const{error}=await sb.storage.from('documents').upload(storagePath,file,{contentType:'application/pdf',upsert:true});
     if(error){showToast('Upload failed: '+error.message,false);}
     else{
+      await logActivity('upload',{doc_type:item.document_type,path:storagePath});
       if(!['Verified','Waived','Complete'].includes(item.status)&&!isSeed){
         await sb.from('checklist_items').update({status:'Received'}).eq('id',item.id);
         setItems(p=>p.map(i=>i.id===item.id?{...i,status:'Received'}:i));
@@ -798,7 +860,10 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                 return(
                   <tr key={item.id} className={last?"dt-tr-last":""} style={editing?{background:"#fafafa"}:{}}>
                     <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{item.category||"—"}</td>
-                    <td className="dt-td" style={{fontWeight:500}}>{docLabel}</td>
+                    <td className="dt-td" style={{fontWeight:500}}>
+                      {docLabel}
+                      {(()=>{const exp=expiryState(item.valid_until);return exp&&exp.short!==item.valid_until?(<div style={{marginTop:3}}><span style={{fontSize:10,fontWeight:500,color:exp.color,background:exp.bg,padding:"1px 6px",borderRadius:3,display:"inline-flex",alignItems:"center",gap:4}}><i className="ti ti-calendar-x" style={{fontSize:10}}/>{exp.short}</span></div>):null;})()}
+                    </td>
                     <td className="dt-td">
                       {editing
                         ?<select value={editStatus} onChange={e=>setEditStatus(e.target.value)} style={{width:110,fontSize:12,padding:"4px 7px"}}>
@@ -829,7 +894,8 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                     {!ro&&<td className="dt-td">
                       {editing?(
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                          <input value={editNotes} onChange={e=>setEditNotes(e.target.value)} placeholder="Notes…" style={{fontSize:11,padding:"3px 6px",width:130}}/>
+                          <input value={editNotes} onChange={e=>setEditNotes(e.target.value)} placeholder="Notes…" style={{fontSize:11,padding:"3px 6px",width:120}}/>
+                          <input type="date" value={editExpiry} onChange={e=>setEditExpiry(e.target.value)} title="Expiry date" style={{fontSize:11,padding:"3px 6px",width:120}}/>
                           <button onClick={()=>saveOverride(item)} className="dt-btn-primary" style={{fontSize:11,padding:"4px 10px"}}>Save</button>
                           <button onClick={()=>setEditId(null)} style={{fontSize:11,padding:"4px 10px"}}>Cancel</button>
                         </div>
@@ -850,6 +916,44 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
           </tbody>
         </table>
       </div>
+
+      {activity.length>0&&(
+        <div className="dt-card" style={{marginTop:14}}>
+          <div className="dt-section-hdr">Activity log</div>
+          <div style={{padding:"14px 16px"}}>
+            {activity.map((a,i)=>{
+              const META={
+                override:{icon:"ti-pencil",color:"#7c3aed"},
+                upload:  {icon:"ti-upload", color:"#16a34a"},
+                submit:  {icon:"ti-send",   color:"#2563eb"},
+                order_status:{icon:"ti-refresh",color:"#d97706"},
+              };
+              const m=META[a.action]||{icon:"ti-circle",color:"#64748b"};
+              const d=a.detail||{};
+              const desc=a.action==='override'?`${d.doc_type}: ${d.from} → ${d.to}${d.notes?` — "${d.notes}"`:''}${d.expiry?` · expires ${d.expiry}`:''}`:
+                         a.action==='upload'?`Uploaded ${d.doc_type}`:
+                         a.action==='submit'?`Submitted ${d.doc_type}`:
+                         a.action==='order_status'?`Order status: ${d.from} → ${d.to}`:
+                         a.action;
+              return(
+                <div key={a.id} style={{display:"flex",gap:12,alignItems:"flex-start",paddingBottom:i===activity.length-1?0:12,marginBottom:i===activity.length-1?0:12,borderBottom:i===activity.length-1?"none":"1px solid #f1f5f9"}}>
+                  <div style={{width:30,height:30,borderRadius:"50%",background:`${m.color}18`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                    <i className={`ti ${m.icon}`} style={{fontSize:13,color:m.color}}/>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,color:"#1e293b"}}>{desc}</div>
+                    <div style={{fontSize:11,color:"#94a3b8",marginTop:2,display:"flex",gap:6}}>
+                      <span>{a.user_email||"system"}</span>
+                      <span>·</span>
+                      <span>{new Date(a.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
