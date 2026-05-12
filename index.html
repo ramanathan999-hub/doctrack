@@ -544,8 +544,11 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   function startEdit(item){setEditId(item.id);setEditStatus(item.status||'Pending');setEditNotes(item.notes||'');}
 
   async function saveOverride(item){
-    const patch={status:editStatus,notes:editNotes};
-    if(!isSeed){await sb.from('checklist_items').update(patch).eq('id',item.id);}
+    const patch={status:editStatus};
+    if(!isSeed){
+      const{error}=await sb.from('checklist_items').update(patch).eq('id',item.id);
+      if(error){showToast('Save failed: '+error.message,false);return;}
+    }
     setItems(p=>p.map(i=>i.id===item.id?{...i,...patch}:i));
     setEditId(null);showToast('Document updated');
   }
@@ -677,7 +680,6 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                     {!ro&&<td className="dt-td">
                       {editing?(
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                          <input value={editNotes} onChange={e=>setEditNotes(e.target.value)} placeholder="Notes&#x2026;" style={{fontSize:11,padding:"3px 6px",width:130}}/>
                           <button onClick={()=>saveOverride(item)} className="dt-btn-primary" style={{fontSize:11,padding:"4px 10px"}}>Save</button>
                           <button onClick={()=>setEditId(null)} style={{fontSize:11,padding:"4px 10px"}}>Cancel</button>
                         </div>
