@@ -193,7 +193,10 @@ const DOC_BADGE={
   Received:{bg:"#dbeafe",color:"#1d4ed8"},
   Verified:{bg:"#dcfce7",color:"#15803d"},
   Rejected:{bg:"#fee2e2",color:"#b91c1c"},
-  Waived:{bg:"#fef3c7",color:"#b45309"}
+  Waived:{bg:"#fef3c7",color:"#b45309"},
+  Complete:{bg:"#dcfce7",color:"#15803d"},
+  Partial:{bg:"#dbeafe",color:"#1d4ed8"},
+  Missing:{bg:"#fee2e2",color:"#b91c1c"}
 };
 const ORDER_BADGE={
   "New":{bg:"#f1f5f9",color:"#64748b"},
@@ -528,8 +531,8 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   if(loading)return<div style={{padding:40,textAlign:'center',color:'#94a3b8'}}>Loading&#x2026;</div>;
   if(!order)return<div style={{padding:40,textAlign:'center',color:'#94a3b8'}}>Order not found.</div>;
 
-  const reqItems=items.filter(i=>i.condition==='Always');
-  const reqDone=reqItems.filter(i=>i.status==='Verified'||i.status==='Waived').length;
+  const reqItems=items.filter(i=>!i.condition||i.condition==='Always');
+  const reqDone=reqItems.filter(i=>i.status==='Verified'||i.status==='Waived'||i.status==='Complete').length;
   const reqTotal=reqItems.length||items.length;
   const pct=reqTotal>0?Math.round(reqDone/reqTotal*100):(order.progress_pct||0);
 
