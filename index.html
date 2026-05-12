@@ -618,7 +618,12 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                         ?<select value={editStatus} onChange={e=>setEditStatus(e.target.value)} style={{width:110,fontSize:12,padding:"4px 7px"}}>
                           {DOC_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
                         </select>
-                        :<Badge label={item.status||"Pending"} cfg={DOC_BADGE}/>
+                        :<div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <Badge label={item.status||"Pending"} cfg={DOC_BADGE}/>
+                          {!ro&&<button onClick={()=>startEdit(item)} title="Override status" style={{background:"none",border:"none",padding:"2px 3px",cursor:"pointer",display:"flex",alignItems:"center",color:"#94a3b8"}}>
+                            <i className="ti ti-pencil" style={{fontSize:13}}/>
+                          </button>}
+                        </div>
                       }
                     </td>
                     <td className="dt-td">
@@ -644,9 +649,6 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                         </div>
                       ):(
                         <div style={{display:"flex",gap:6}}>
-                          <button onClick={()=>startEdit(item)} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4}}>
-                            <i className="ti ti-pencil"/>Override
-                          </button>
                           {item.status!=="Verified"&&item.status!=="Waived"&&item.status!=="Complete"&&(
                             <button onClick={()=>submitDoc(item)} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4,background:"#dbeafe",borderColor:"#bfdbfe",color:"#1d4ed8"}}>
                               <i className="ti ti-send"/>Submit
