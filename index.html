@@ -810,7 +810,6 @@ function CreateOrderModal({users,onClose,onCreate}){
   return(
     <ModalWrap title="New order" onClose={onClose}>
       <FField label="Customer name"><input value={f.customer} onChange={e=>u("customer",e.target.value)} placeholder="Customer name" autoFocus/></FField>
-      <FField label="Reference number"><input value={f.ref} onChange={e=>u("ref",e.target.value)} placeholder="e.g. MTC-2025-55"/></FField>
       <FField label="Destination country">
         <select value={f.destination} onChange={e=>u("destination",e.target.value)}>
           <option value="">Select destination…</option>
@@ -822,8 +821,6 @@ function CreateOrderModal({users,onClose,onCreate}){
           {INCOTERMS_LIST.map(i=><option key={i} value={i}>{i}</option>)}
         </select>
       </FField>
-      <FField label="Assign to"><select value={f.assignedTo} onChange={e=>u("assignedTo",e.target.value)}>{users.filter(u=>u.active&&u.role!=="viewer").map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}</select></FField>
-      <FField label="Due date"><input type="date" value={f.dueDate} onChange={e=>u("dueDate",e.target.value)}/></FField>
       <div className="dt-modal-actions">
         <button onClick={onClose} disabled={saving}>Cancel</button>
         <button onClick={submit} disabled={saving||!f.customer||!f.destination} className="dt-btn-primary">
@@ -1005,8 +1002,6 @@ function App(){
           customer_name:f.customer,
           destination_country:f.destination,
           incoterms:f.incoterms,
-          ref:f.ref||null,
-          due_date:f.dueDate||null,
           status:'New',
           progress_pct:0,
           ready_to_ship:false
