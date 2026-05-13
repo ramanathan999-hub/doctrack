@@ -947,6 +947,8 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
       const data=await res.json();
       if(data.status==='no_document'){
         showToast('No PDF uploaded yet — upload the document before requesting a signature',false);
+      }else if(data.status==='no_signer_configured'){
+        showToast('No signer configured for this destination — add a signature rule in Admin → Signature Rules',false);
       }else if(data.status==='requested'){
         setItems(p=>p.map(i=>i.id===item.id?{...i,signature_status:'requested'}:i));
         showToast('Signature request sent to signer via email');
