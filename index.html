@@ -243,7 +243,7 @@ async function getConditionalDocs(dest,incoterms){
       if(r.condition_field==='incoterms')return inc===r.condition_value.toLowerCase();
       return false;
     })
-    .map(r=>({docType:r.document_type,category:r.category,source:r.source||''}));
+    .map(r=>({docType:r.document_type,category:r.category,source:r.source||'',signatureRequired:!!r.signature_required}));
 }
 
 /* ── Config ── */
@@ -1241,7 +1241,7 @@ function TypesView({orderTypes,onAddDoc}){
   const[rules,setRules]=useState([]);
   const[rulesLoading,setRulesLoading]=useState(true);
   const[addingRule,setAddingRule]=useState(false);
-  const[newRule,setNewRule]=useState({document_type:'',category:'',source:'',condition_field:'destination',condition_value:''});
+  const[newRule,setNewRule]=useState({document_type:'',category:'',source:'',condition_field:'destination',condition_value:'',signature_required:false});
   const ur=(k,v)=>setNewRule(p=>({...p,[k]:v}));
 
   useEffect(()=>{
@@ -1346,6 +1346,11 @@ function TypesView({orderTypes,onAddDoc}){
               <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Source</label>
               <input value={newRule.source} onChange={e=>ur('source',e.target.value)} placeholder="e.g. Dutch Customs" style={{fontSize:12,width:130}}/>
             </div>
+            <div style={{display:'flex',flexDirection:'column',gap:3,justifyContent:'flex-end'}}>
+              <label style={{display:'flex',alignItems:'center',gap:4,fontSize:12,color:'#64748b',cursor:'pointer',whiteSpace:'nowrap',paddingBottom:6}}>
+                <input type="checkbox" checked={newRule.signature_required} onChange={e=>ur('signature_required',e.target.checked)} style={{width:'auto'}}/>Sig. req.
+              </label>
+            </div>
             <button onClick={saveRule} disabled={!newRule.document_type||!newRule.condition_value} className="dt-btn-primary" style={{fontSize:12,padding:'6px 14px',alignSelf:'flex-end'}}>Add</button>
           </div>
         )}
@@ -1367,6 +1372,7 @@ function TypesView({orderTypes,onAddDoc}){
                       <th className="dt-th">Document type</th>
                       <th className="dt-th">Category</th>
                       <th className="dt-th">Source</th>
+                      <th className="dt-th">Sig. req.</th>
                       <th className="dt-th"/>
                     </tr></thead>
                     <tbody>
@@ -1376,6 +1382,7 @@ function TypesView({orderTypes,onAddDoc}){
                           <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
                           <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.category||'—'}</td>
                           <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.source||'—'}</td>
+                          <td className="dt-td">{r.signature_required?<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Yes</span>:<span style={{color:'#e2e8f0',fontSize:12}}>—</span>}</td>
                           <td className="dt-td" style={{textAlign:'right'}}>
                             <button onClick={()=>deleteRule(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}>
                               <i className="ti ti-trash" style={{fontSize:14}}/>
@@ -1544,6 +1551,7 @@ function CsvImportModal({onClose,onImported,showToast}){
           document_type:d.docType,
           source:d.source,
           status:'Pending',
+          signature_required:d.signatureRequired||false,
           expected:2,found:0
         })));
         imported++;
@@ -1692,6 +1700,7 @@ function CustomerPortalView({token}){
   const[loading,setLoading]=useState(true);
   const[expanded,setExpanded]=useState(null);
   const[portalToast,setPortalToast]=useState(null);
+  const[downloading,setDownloading]=useState(null);
   const showMsg=(msg,ok=true)=>{setPortalToast({msg,ok});setTimeout(()=>setPortalToast(null),3500);};
 
   useEffect(()=>{
@@ -1714,20 +1723,15 @@ function CustomerPortalView({token}){
     load();
   },[]);
 
-  async function requestSignature(item,order){
-    try{
-      await fetch('https://ramanathan999.app.n8n.cloud/webhook/request-signature',{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({order_number:order.order_number,customer_name:customerName,document_type:item.document_type,item_id:item.id})
-      });
-      await sb.from('checklist_items').update({signature_status:'requested'}).eq('id',item.id);
-      setItemsByOrder(prev=>{
-        const u={...prev};
-        u[order.order_number]=(u[order.order_number]||[]).map(i=>i.id===item.id?{...i,signature_status:'requested'}:i);
-        return u;
-      });
-      showMsg('Signature request sent — check your email for the signing link.');
-    }catch(e){showMsg('Failed to send request. Please contact your account manager.',false);}
+  async function downloadDoc(item,orderNumber){
+    setDownloading(item.id);
+    const folder=(item.category||'').trim().replace(/ /g,'_');
+    const docName=(item.document_type||'').trim().replace(/ /g,'_');
+    const path=`${orderNumber}/${folder}/${docName}_${orderNumber}.pdf`;
+    const{data,error}=await sb.storage.from('documents').createSignedUrl(path,3600);
+    setDownloading(null);
+    if(error||!data?.signedUrl){showMsg('Document not yet available for download',false);return;}
+    window.open(data.signedUrl,'_blank');
   }
 
   if(loading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
@@ -1756,23 +1760,20 @@ function CustomerPortalView({token}){
           <div className="dt-avatar" style={{width:36,height:36,fontSize:13,flexShrink:0}}>{customerName.slice(0,2).toUpperCase()}</div>
           <div>
             <div style={{fontSize:15,fontWeight:500,color:'#0f172a'}}>{customerName}</div>
-            <div style={{fontSize:12,color:'#94a3b8'}}>{orders.length} active order{orders.length!==1?'s':''} — last 90 days</div>
+            <div style={{fontSize:12,color:'#94a3b8'}}>{orders.length} order{orders.length!==1?'s':''} — last 90 days</div>
           </div>
         </div>
 
         {orders.length===0
           ?<div className="dt-card" style={{padding:'40px',textAlign:'center'}}>
             <i className="ti ti-clipboard-list" style={{fontSize:32,color:'#e2e8f0',display:'block',marginBottom:12}}/>
-            <div style={{fontSize:13,color:'#94a3b8'}}>No active orders in the last 90 days</div>
+            <div style={{fontSize:13,color:'#94a3b8'}}>No orders in the last 90 days</div>
           </div>
           :orders.map(order=>{
             const items=itemsByOrder[order.order_number]||[];
             const isOpen=expanded===order.order_number;
-            const reqItems=items.filter(i=>!i.condition||i.condition==='Always');
-            const reqDone=reqItems.filter(i=>['Verified','Waived','Complete'].includes(i.status)).length;
-            const reqTotal=reqItems.length||items.length;
-            const pct=reqTotal>0?Math.round(reqDone/reqTotal*100):0;
-            const pendingSigs=items.filter(i=>i.signature_required&&i.signature_status!=='signed').length;
+            const done=items.filter(i=>['Verified','Waived','Complete'].includes(i.status)).length;
+            const pct=items.length>0?Math.round(done/items.length*100):0;
             return(
               <div key={order.order_number} className="dt-card" style={{marginBottom:12}}>
                 <div style={{padding:'14px 18px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}} onClick={()=>setExpanded(isOpen?null:order.order_number)}>
@@ -1780,7 +1781,6 @@ function CustomerPortalView({token}){
                     <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4,flexWrap:'wrap'}}>
                       <span className="mono" style={{fontSize:11,color:'#2563eb'}}>{order.order_number}</span>
                       <Badge label={order.status||'New'} cfg={ORDER_BADGE}/>
-                      {pendingSigs>0&&<span className="dt-sig-badge" style={{background:'#fef3c7',color:'#b45309'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>{pendingSigs} awaiting signature</span>}
                     </div>
                     <div style={{fontSize:14,fontWeight:500,color:'#0f172a',marginBottom:2}}>{order.customer_name}</div>
                     <div style={{fontSize:11,color:'#94a3b8',display:'flex',gap:10,flexWrap:'wrap'}}>
@@ -1791,8 +1791,8 @@ function CustomerPortalView({token}){
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:14,flexShrink:0}}>
                     <div style={{textAlign:'right'}}>
-                      <div style={{fontSize:11,color:'#64748b',marginBottom:2}}>Progress</div>
-                      <div style={{fontSize:20,fontWeight:600,color:pct===100?'#15803d':'#0f172a',lineHeight:1}}>{pct}%</div>
+                      <div style={{fontSize:11,color:'#64748b',marginBottom:2}}>Docs complete</div>
+                      <div style={{fontSize:20,fontWeight:600,color:pct===100?'#15803d':'#0f172a',lineHeight:1}}>{done}/{items.length}</div>
                     </div>
                     <i className={`ti ${isOpen?'ti-chevron-up':'ti-chevron-down'}`} style={{fontSize:14,color:'#94a3b8'}}/>
                   </div>
@@ -1804,27 +1804,24 @@ function CustomerPortalView({token}){
                         <th className="dt-th">Document</th>
                         <th className="dt-th">Category</th>
                         <th className="dt-th">Status</th>
-                        <th className="dt-th">Signature</th>
+                        <th className="dt-th">Download</th>
                       </tr></thead>
                       <tbody>
                         {items.map((item,i)=>{
                           const last=i===items.length-1;
-                          const ss=item.signature_status;
+                          const available=['Verified','Received','Complete'].includes(item.status);
                           return(
                             <tr key={item.id} className={last?'dt-tr-last':''}>
                               <td className="dt-td" style={{fontWeight:500}}>{item.document_type||'—'}</td>
                               <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{item.category||'—'}</td>
                               <td className="dt-td"><Badge label={item.status||'Pending'} cfg={DOC_BADGE}/></td>
                               <td className="dt-td">
-                                {item.signature_required
-                                  ?ss==='signed'
-                                    ?<span className="dt-sig-badge" style={{background:'#dcfce7',color:'#15803d'}}><i className="ti ti-check" style={{fontSize:10}}/>Signed</span>
-                                    :ss==='requested'
-                                      ?<span className="dt-sig-badge" style={{background:'#fef3c7',color:'#b45309'}}><i className="ti ti-clock" style={{fontSize:10}}/>Pending</span>
-                                      :<button onClick={()=>requestSignature(item,order)} style={{fontSize:11,padding:'3px 10px',display:'inline-flex',alignItems:'center',gap:4,background:'#ede9fe',border:'1px solid #ddd6fe',color:'#7c3aed',borderRadius:5,cursor:'pointer',fontFamily:"'DM Sans',sans-serif"}}>
-                                          <i className="ti ti-signature"/>Request signature
-                                        </button>
-                                  :<span style={{color:'#e2e8f0',fontSize:12}}>—</span>}
+                                {available
+                                  ?<button onClick={()=>downloadDoc(item,order.order_number)} disabled={downloading===item.id} style={{background:'none',border:'none',padding:'2px 4px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:4,fontSize:12,color:'#2563eb',opacity:downloading===item.id?.5:1,fontFamily:"'DM Sans',sans-serif"}}>
+                                    {downloading===item.id?<i className="ti ti-loader-2" style={{fontSize:15}}/>:<i className="ti ti-file-download" style={{fontSize:15}}/>}
+                                    {downloading===item.id?'Opening…':'Download'}
+                                  </button>
+                                  :<span style={{fontSize:12,color:'#cbd5e1'}}>Not yet available</span>}
                               </td>
                             </tr>
                           );
@@ -2126,6 +2123,7 @@ function App(){
           document_type:d.docType,
           source:d.source,
           status:'Pending',
+          signature_required:d.signatureRequired||false,
           expected:2,
           found:0
         })));
