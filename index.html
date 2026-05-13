@@ -944,8 +944,15 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
         body:JSON.stringify({item_id:item.id,order_number:order.order_number,destination_country:order.destination_country||''})
       });
       if(!res.ok)throw new Error(`HTTP ${res.status}`);
-      setItems(p=>p.map(i=>i.id===item.id?{...i,signature_status:'signed',signed_at:new Date().toISOString()}:i));
-      showToast('Document signed successfully');
+      const data=await res.json();
+      if(data.status==='no_document'){
+        showToast('No PDF uploaded yet — upload the document before requesting a signature',false);
+      }else if(data.status==='requested'){
+        setItems(p=>p.map(i=>i.id===item.id?{...i,signature_status:'requested'}:i));
+        showToast('Signature request sent to signer via email');
+      }else{
+        showToast('Signature request failed — unexpected response',false);
+      }
     }catch(e){showToast('Signature request failed — check n8n workflow',false);}
     setRequestingSig(null);
   }
