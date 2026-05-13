@@ -1291,6 +1291,12 @@ function TypesView({orderTypes,onAddDoc}){
     setRules(p=>p.filter(r=>r.id!==id));
   }
 
+  async function toggleSigReq(id,current){
+    const val=!current;
+    await sb.from('doc_rules').update({signature_required:val}).eq('id',id);
+    setRules(p=>p.map(r=>r.id===id?{...r,signature_required:val}:r));
+  }
+
   return(
     <div>
       {orderTypes.map(ot=>(
@@ -1411,7 +1417,7 @@ function TypesView({orderTypes,onAddDoc}){
                           <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
                           <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.category||'—'}</td>
                           <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.source||'—'}</td>
-                          <td className="dt-td">{r.signature_required?<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Yes</span>:<span style={{color:'#e2e8f0',fontSize:12}}>—</span>}</td>
+                          <td className="dt-td" style={{cursor:'pointer'}} onClick={()=>toggleSigReq(r.id,r.signature_required)} title="Click to toggle">{r.signature_required?<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Yes</span>:<span style={{color:'#94a3b8',fontSize:12}}>No</span>}</td>
                           <td className="dt-td" style={{textAlign:'right'}}>
                             <button onClick={()=>deleteRule(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}>
                               <i className="ti ti-trash" style={{fontSize:14}}/>
