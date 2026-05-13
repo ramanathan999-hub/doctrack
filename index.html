@@ -1321,7 +1321,7 @@ function TypesView({orderTypes,onAddDoc}){
                             <tr key={d.id} className={i===catDocs.length-1?"dt-tr-last":""}>
                               <td className="dt-td" style={{width:32,paddingLeft:28}}><i className="ti ti-file-text" style={{fontSize:14,color:"#94a3b8"}}/></td>
                               <td className="dt-td" style={{fontWeight:500}}>{d.name}</td>
-                              <td className="dt-td">{d.required?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>:<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}</td>
+                              <td className="dt-td" style={{width:90,textAlign:'right',paddingRight:16}}>{d.required?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>:<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}</td>
                             </tr>
                           ))}
                         </tbody>
