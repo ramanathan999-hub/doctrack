@@ -111,6 +111,9 @@ button:hover{background:#f8fafc}
 .dt-ro-label{font-size:11px;color:#94a3b8;display:flex;align-items:center;gap:4px}
 .mono{font-family:'JetBrains Mono',monospace}
 
+/* Signature */
+.dt-sig-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:500;padding:2px 7px;border-radius:3px}
+
 /* Shipment Timeline */
 .dt-timeline{position:relative;padding-left:26px}
 .dt-timeline::before{content:'';position:absolute;left:10px;top:6px;bottom:6px;width:2px;background:#e2e8f0;border-radius:2px}
@@ -145,6 +148,7 @@ button:hover{background:#f8fafc}
 <script type="text/babel">
 const {useState,useEffect,useRef}=React;
 const SHARE_TOKEN=new URLSearchParams(location.search).get('share');
+const CUSTOMER_TOKEN=new URLSearchParams(location.search).get('customer');
 const sb=window.supabase.createClient('https://syorwcsahfxbemvwdxrz.supabase.co','sb_publishable_S6_L3SlyflJLJ85IbCPwFA_G6ZKA8e_');
 
 /* ── Seed data ── */
@@ -206,13 +210,8 @@ const SEED_ORDERS=[
     documents:mkDocs([])},
 ];
 
-/* ── Required docs by destination ── */
-function getRequiredDocs(dest){
-  dest=(dest||'').toLowerCase();
-  const isTurkey=dest.includes('turkey');
-  const isGreeceCyprus=dest.includes('greece')||dest.includes('cyprus');
-  const isEgypt=dest.includes('egypt');
-  const isAfrica=['nigeria','ghana','kenya','cameroon','tanzania','senegal','ethiopia','ivory coast'].some(c=>dest.includes(c));
+/* ── Required docs — base list (always) + conditional from Supabase ── */
+function getRequiredDocs(){
   return[
     {docType:'Invoice',                        category:'SAP docs',        source:'ARL SAP'},
     {docType:'Certificate of Analysis',        category:'SAP docs',        source:'ARL SAP'},
@@ -226,18 +225,25 @@ function getRequiredDocs(dest){
     {docType:'BL',                             category:'Freight docs',    source:'Ocean liner / Forwarder'},
     {docType:'Shipping and Vessel Certificate',category:'Freight docs',    source:'Ocean liner / Forwarder'},
     {docType:'UIT Export Declaration',         category:'Customs docs',    source:'Dutch Customs'},
-    isTurkey&&{docType:'ATR',                  category:'Customs docs',    source:'Dutch Customs'},
-    isGreeceCyprus&&{docType:'T2L Greece or Cyprus',category:'Customs docs',source:'EU Customs'},
     {docType:'IPPC and ISPM15',                category:'Compliance docs', source:'NVWA'},
     {docType:'SGS Inspection Report',          category:'Compliance docs', source:'SGS'},
-    isAfrica&&{docType:'COC Certificate of Conformity',category:'Compliance docs',source:'Bureau Veritas'},
-    isAfrica&&{docType:'CTN Cargo Tracking Note',category:'Compliance docs',source:'BESC/ECTN'},
     {docType:'Bank Draft',                     category:'Finance docs',    source:'Bank'},
     {docType:'Manufacturer Declaration',       category:'Internal docs',   source:'Internal'},
     {docType:'Cover Letter',                   category:'Internal docs',   source:'Internal'},
-    isEgypt&&{docType:'MSDS Cargo X Egypt',    category:'Cargo X docs',    source:'Cargo X'},
     {docType:'Certificate of Origin',          category:'CoC docs',        source:'Chamber of Commerce'},
-  ].filter(Boolean);
+  ];
+}
+async function getConditionalDocs(dest,incoterms){
+  const{data}=await sb.from('doc_rules').select('*');
+  const d=(dest||'').toLowerCase();
+  const inc=(incoterms||'').toLowerCase();
+  return(data||[])
+    .filter(r=>{
+      if(r.condition_field==='destination')return d.includes(r.condition_value.toLowerCase());
+      if(r.condition_field==='incoterms')return inc===r.condition_value.toLowerCase();
+      return false;
+    })
+    .map(r=>({docType:r.document_type,category:r.category,source:r.source||''}));
 }
 
 /* ── Config ── */
@@ -404,6 +410,7 @@ function Sidebar({user,view,onNav,onLogout,open,onClose}){
           <div className="dt-nav-section" style={{marginTop:8}}>Admin</div>
           {item("ti-users","Users","users")}
           {item("ti-list-details","Order types","types")}
+          {item("ti-user-share","Customer portals","customer-portals")}
         </>}
       </div>
       <div className="dt-user-footer">
@@ -803,6 +810,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[editStatus,setEditStatus]=useState('');
   const[editNotes,setEditNotes]=useState('');
   const[editExpiry,setEditExpiry]=useState('');
+  const[editSigReq,setEditSigReq]=useState(false);
   const ro=!canEdit(currentUser.role);
   const[uploading,setUploading]=useState(null);
   const[uploadTarget,setUploadTarget]=useState(null);
@@ -885,10 +893,11 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     setEditStatus(item.status||'Pending');
     setEditNotes(item.notes||'');
     setEditExpiry(item.valid_until||'');
+    setEditSigReq(!!item.signature_required);
   }
 
   async function saveOverride(item){
-    const patch={status:editStatus,notes:editNotes,valid_until:editExpiry||null};
+    const patch={status:editStatus,notes:editNotes,valid_until:editExpiry||null,signature_required:editSigReq};
     if(!isSeed){
       const{error}=await sb.from('checklist_items').update(patch).eq('id',item.id);
       if(error){showToast('Save failed: '+error.message,false);return;}
@@ -1024,7 +1033,15 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                   <tr key={item.id} className={last?"dt-tr-last":""} style={editing?{background:"#fafafa"}:{}}>
                     <td className="dt-td" style={{fontSize:12,color:"#64748b"}}>{item.category||"—"}</td>
                     <td className="dt-td" style={{fontWeight:500}}>
-                      {docLabel}
+                      <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                        {docLabel}
+                        {item.signature_required&&(item.signature_status==='signed'
+                          ?<span className="dt-sig-badge" style={{background:'#dcfce7',color:'#15803d'}}><i className="ti ti-check" style={{fontSize:10}}/>Signed</span>
+                          :item.signature_status==='requested'
+                            ?<span className="dt-sig-badge" style={{background:'#fef3c7',color:'#b45309'}}><i className="ti ti-clock" style={{fontSize:10}}/>Sig. pending</span>
+                            :<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Needs sig.</span>
+                        )}
+                      </div>
                       {(()=>{const exp=expiryState(item.valid_until);return exp&&exp.short!==item.valid_until?(<div style={{marginTop:3}}><span style={{fontSize:10,fontWeight:500,color:exp.color,background:exp.bg,padding:"1px 6px",borderRadius:3,display:"inline-flex",alignItems:"center",gap:4}}><i className="ti ti-calendar-x" style={{fontSize:10}}/>{exp.short}</span></div>):null;})()}
                     </td>
                     <td className="dt-td">
@@ -1057,8 +1074,11 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                     {!ro&&<td className="dt-td">
                       {editing?(
                         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                          <input value={editNotes} onChange={e=>setEditNotes(e.target.value)} placeholder="Notes…" style={{fontSize:11,padding:"3px 6px",width:120}}/>
+                          <input value={editNotes} onChange={e=>setEditNotes(e.target.value)} placeholder="Notes…" style={{fontSize:11,padding:"3px 6px",width:110}}/>
                           <input type="date" value={editExpiry} onChange={e=>setEditExpiry(e.target.value)} title="Expiry date" style={{fontSize:11,padding:"3px 6px",width:120}}/>
+                          <label style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:"#64748b",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                            <input type="checkbox" checked={editSigReq} onChange={e=>setEditSigReq(e.target.checked)} style={{width:"auto"}}/>Sig. req.
+                          </label>
                           <button onClick={()=>saveOverride(item)} className="dt-btn-primary" style={{fontSize:11,padding:"4px 10px"}}>Save</button>
                           <button onClick={()=>setEditId(null)} style={{fontSize:11,padding:"4px 10px"}}>Cancel</button>
                         </div>
@@ -1218,6 +1238,30 @@ function TypesView({orderTypes,onAddDoc}){
   const[docName,setDocName]=useState("");
   const[docCat,setDocCat]=useState("");
   const[docReq,setDocReq]=useState(true);
+  const[rules,setRules]=useState([]);
+  const[rulesLoading,setRulesLoading]=useState(true);
+  const[addingRule,setAddingRule]=useState(false);
+  const[newRule,setNewRule]=useState({document_type:'',category:'',source:'',condition_field:'destination',condition_value:''});
+  const ur=(k,v)=>setNewRule(p=>({...p,[k]:v}));
+
+  useEffect(()=>{
+    sb.from('doc_rules').select('*').order('condition_field').then(({data})=>{setRules(data||[]);setRulesLoading(false);});
+  },[]);
+
+  async function saveRule(){
+    if(!newRule.document_type.trim()||!newRule.condition_value.trim())return;
+    const{data,error}=await sb.from('doc_rules').insert({...newRule,document_type:newRule.document_type.trim(),category:newRule.category.trim()||'General',source:newRule.source.trim(),condition_value:newRule.condition_value.trim()}).select().single();
+    if(error){alert('Failed: '+error.message);return;}
+    setRules(p=>[...p,data]);
+    setNewRule({document_type:'',category:'',source:'',condition_field:'destination',condition_value:''});
+    setAddingRule(false);
+  }
+
+  async function deleteRule(id){
+    await sb.from('doc_rules').delete().eq('id',id);
+    setRules(p=>p.filter(r=>r.id!==id));
+  }
+
   return(
     <div>
       {orderTypes.map(ot=>(
@@ -1269,6 +1313,83 @@ function TypesView({orderTypes,onAddDoc}){
           )}
         </div>
       ))}
+
+      <div className="dt-card" style={{marginTop:20}}>
+        <div className="dt-section-hdr">
+          Conditional document rules
+          <button onClick={()=>setAddingRule(p=>!p)} style={{fontSize:12,display:'flex',alignItems:'center',gap:4,color:'#2563eb',background:'none',border:'none',cursor:'pointer',padding:0,fontFamily:"'DM Sans',sans-serif"}}>
+            <i className={`ti ${addingRule?'ti-x':'ti-plus'}`}/>{addingRule?'Cancel':'Add rule'}
+          </button>
+        </div>
+        {addingRule&&(
+          <div style={{padding:'12px 16px',background:'#f8fafc',borderBottom:'1px solid #e2e8f0',display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}}>
+            <div style={{display:'flex',flexDirection:'column',gap:3}}>
+              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Condition</label>
+              <select value={newRule.condition_field} onChange={e=>ur('condition_field',e.target.value)} style={{fontSize:12,flex:'0 0 120px',width:120}}>
+                <option value="destination">Destination</option>
+                <option value="incoterms">Incoterms</option>
+              </select>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:3}}>
+              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Value</label>
+              <input value={newRule.condition_value} onChange={e=>ur('condition_value',e.target.value)} placeholder={newRule.condition_field==='destination'?'e.g. Turkey':'e.g. DDP'} style={{fontSize:12,width:110}}/>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:3,flex:1}}>
+              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Document type</label>
+              <input value={newRule.document_type} onChange={e=>ur('document_type',e.target.value)} placeholder="e.g. ATR Certificate" style={{fontSize:12}}/>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:3}}>
+              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Category</label>
+              <input value={newRule.category} onChange={e=>ur('category',e.target.value)} placeholder="e.g. Customs docs" style={{fontSize:12,width:130}}/>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:3}}>
+              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Source</label>
+              <input value={newRule.source} onChange={e=>ur('source',e.target.value)} placeholder="e.g. Dutch Customs" style={{fontSize:12,width:130}}/>
+            </div>
+            <button onClick={saveRule} disabled={!newRule.document_type||!newRule.condition_value} className="dt-btn-primary" style={{fontSize:12,padding:'6px 14px',alignSelf:'flex-end'}}>Add</button>
+          </div>
+        )}
+        {rulesLoading
+          ?<div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading rules…</div>
+          :rules.length===0&&!addingRule
+            ?<div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No conditional rules yet. Add rules to auto-include documents based on destination or incoterms.</div>
+            :(()=>{
+              const byField={'destination':rules.filter(r=>r.condition_field==='destination'),'incoterms':rules.filter(r=>r.condition_field==='incoterms')};
+              return Object.entries(byField).filter(([,rs])=>rs.length>0).map(([field,rs])=>(
+                <div key={field}>
+                  <div style={{padding:'7px 16px',background:'#f8fafc',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:11,fontWeight:600,color:'#475569',letterSpacing:'.05em',textTransform:'uppercase'}}>{field==='destination'?'By destination':'By incoterms'}</span>
+                    <span style={{fontSize:11,color:'#94a3b8'}}>{rs.length} rule{rs.length!==1?'s':''}</span>
+                  </div>
+                  <table className="dt-table">
+                    <thead><tr>
+                      <th className="dt-th">Condition value</th>
+                      <th className="dt-th">Document type</th>
+                      <th className="dt-th">Category</th>
+                      <th className="dt-th">Source</th>
+                      <th className="dt-th"/>
+                    </tr></thead>
+                    <tbody>
+                      {rs.map((r,i)=>(
+                        <tr key={r.id} className={i===rs.length-1?'dt-tr-last':''}>
+                          <td className="dt-td"><span className="dt-badge" style={{background:'#f1f5f9',color:'#475569',fontSize:11}}>{r.condition_value}</span></td>
+                          <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
+                          <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.category||'—'}</td>
+                          <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.source||'—'}</td>
+                          <td className="dt-td" style={{textAlign:'right'}}>
+                            <button onClick={()=>deleteRule(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}>
+                              <i className="ti ti-trash" style={{fontSize:14}}/>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ));
+            })()
+        }
+      </div>
     </div>
   );
 }
@@ -1413,7 +1534,9 @@ function CsvImportModal({onClose,onImported,showToast}){
         ready_to_ship:false
       }).select().single();
       if(!error&&newOrder){
-        const docs=getRequiredDocs(r.destination);
+        const baseDocs=getRequiredDocs();
+        const condDocs=await getConditionalDocs(r.destination,r.incoterms||'CIF');
+        const docs=[...baseDocs,...condDocs];
         await sb.from('checklist_items').insert(docs.map(d=>({
           order_id:newOrder.id,
           order_number:orderNumber,
@@ -1562,6 +1685,242 @@ function KVKSearch(){
   );
 }
 
+function CustomerPortalView({token}){
+  const[customerName,setCustomerName]=useState(null);
+  const[orders,setOrders]=useState([]);
+  const[itemsByOrder,setItemsByOrder]=useState({});
+  const[loading,setLoading]=useState(true);
+  const[expanded,setExpanded]=useState(null);
+  const[portalToast,setPortalToast]=useState(null);
+  const showMsg=(msg,ok=true)=>{setPortalToast({msg,ok});setTimeout(()=>setPortalToast(null),3500);};
+
+  useEffect(()=>{
+    async function load(){
+      const{data:portal}=await sb.from('customer_portals').select('customer_name').eq('portal_token',token).maybeSingle();
+      if(!portal){setLoading(false);return;}
+      setCustomerName(portal.customer_name);
+      const cutoff=new Date();cutoff.setDate(cutoff.getDate()-90);
+      const{data:ords}=await sb.from('orders').select('*').eq('customer_name',portal.customer_name).gte('created_at',cutoff.toISOString()).order('created_at',{ascending:false});
+      setOrders(ords||[]);
+      if(ords&&ords.length>0){
+        const{data:its}=await sb.from('checklist_items').select('*').in('order_number',ords.map(o=>o.order_number));
+        const map={};
+        (its||[]).forEach(i=>{if(!map[i.order_number])map[i.order_number]=[];map[i.order_number].push(i);});
+        setItemsByOrder(map);
+        setExpanded(ords[0].order_number);
+      }
+      setLoading(false);
+    }
+    load();
+  },[]);
+
+  async function requestSignature(item,order){
+    try{
+      await fetch('https://ramanathan999.app.n8n.cloud/webhook/request-signature',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({order_number:order.order_number,customer_name:customerName,document_type:item.document_type,item_id:item.id})
+      });
+      await sb.from('checklist_items').update({signature_status:'requested'}).eq('id',item.id);
+      setItemsByOrder(prev=>{
+        const u={...prev};
+        u[order.order_number]=(u[order.order_number]||[]).map(i=>i.id===item.id?{...i,signature_status:'requested'}:i);
+        return u;
+      });
+      showMsg('Signature request sent — check your email for the signing link.');
+    }catch(e){showMsg('Failed to send request. Please contact your account manager.',false);}
+  }
+
+  if(loading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
+  if(!customerName)return(
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9'}}>
+      <div style={{textAlign:'center'}}>
+        <i className="ti ti-link-off" style={{fontSize:40,color:'#e2e8f0',display:'block',marginBottom:12}}/>
+        <div style={{fontSize:15,fontWeight:500,color:'#0f172a',marginBottom:4}}>Portal not found</div>
+        <div style={{fontSize:13,color:'#94a3b8'}}>This portal link may have expired or been revoked.</div>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{minHeight:'100vh',background:'#f1f5f9',padding:'24px 16px',position:'relative'}}>
+      <div style={{maxWidth:820,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:20}}>
+          <i className="ti ti-file-check" style={{fontSize:22,color:'#f97316'}}/>
+          <div>
+            <div style={{fontSize:15,fontWeight:500,color:'#0f172a'}}>DocTrack</div>
+            <div style={{fontSize:9,color:'#94a3b8',fontFamily:"'JetBrains Mono',monospace",letterSpacing:'.1em'}}>CUSTOMER PORTAL</div>
+          </div>
+        </div>
+
+        <div className="dt-card" style={{padding:'14px 20px',marginBottom:16,display:'flex',alignItems:'center',gap:12}}>
+          <div className="dt-avatar" style={{width:36,height:36,fontSize:13,flexShrink:0}}>{customerName.slice(0,2).toUpperCase()}</div>
+          <div>
+            <div style={{fontSize:15,fontWeight:500,color:'#0f172a'}}>{customerName}</div>
+            <div style={{fontSize:12,color:'#94a3b8'}}>{orders.length} active order{orders.length!==1?'s':''} — last 90 days</div>
+          </div>
+        </div>
+
+        {orders.length===0
+          ?<div className="dt-card" style={{padding:'40px',textAlign:'center'}}>
+            <i className="ti ti-clipboard-list" style={{fontSize:32,color:'#e2e8f0',display:'block',marginBottom:12}}/>
+            <div style={{fontSize:13,color:'#94a3b8'}}>No active orders in the last 90 days</div>
+          </div>
+          :orders.map(order=>{
+            const items=itemsByOrder[order.order_number]||[];
+            const isOpen=expanded===order.order_number;
+            const reqItems=items.filter(i=>!i.condition||i.condition==='Always');
+            const reqDone=reqItems.filter(i=>['Verified','Waived','Complete'].includes(i.status)).length;
+            const reqTotal=reqItems.length||items.length;
+            const pct=reqTotal>0?Math.round(reqDone/reqTotal*100):0;
+            const pendingSigs=items.filter(i=>i.signature_required&&i.signature_status!=='signed').length;
+            return(
+              <div key={order.order_number} className="dt-card" style={{marginBottom:12}}>
+                <div style={{padding:'14px 18px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}} onClick={()=>setExpanded(isOpen?null:order.order_number)}>
+                  <div>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4,flexWrap:'wrap'}}>
+                      <span className="mono" style={{fontSize:11,color:'#2563eb'}}>{order.order_number}</span>
+                      <Badge label={order.status||'New'} cfg={ORDER_BADGE}/>
+                      {pendingSigs>0&&<span className="dt-sig-badge" style={{background:'#fef3c7',color:'#b45309'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>{pendingSigs} awaiting signature</span>}
+                    </div>
+                    <div style={{fontSize:14,fontWeight:500,color:'#0f172a',marginBottom:2}}>{order.customer_name}</div>
+                    <div style={{fontSize:11,color:'#94a3b8',display:'flex',gap:10,flexWrap:'wrap'}}>
+                      {order.destination_country&&<span><i className="ti ti-map-pin"/> {order.destination_country}</span>}
+                      {order.incoterms&&<span>{order.incoterms}</span>}
+                      {order.due_date&&<span>Due {order.due_date}</span>}
+                    </div>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:14,flexShrink:0}}>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{fontSize:11,color:'#64748b',marginBottom:2}}>Progress</div>
+                      <div style={{fontSize:20,fontWeight:600,color:pct===100?'#15803d':'#0f172a',lineHeight:1}}>{pct}%</div>
+                    </div>
+                    <i className={`ti ${isOpen?'ti-chevron-up':'ti-chevron-down'}`} style={{fontSize:14,color:'#94a3b8'}}/>
+                  </div>
+                </div>
+                {isOpen&&(
+                  <div style={{borderTop:'1px solid #f1f5f9'}}>
+                    <table className="dt-table">
+                      <thead><tr>
+                        <th className="dt-th">Document</th>
+                        <th className="dt-th">Category</th>
+                        <th className="dt-th">Status</th>
+                        <th className="dt-th">Signature</th>
+                      </tr></thead>
+                      <tbody>
+                        {items.map((item,i)=>{
+                          const last=i===items.length-1;
+                          const ss=item.signature_status;
+                          return(
+                            <tr key={item.id} className={last?'dt-tr-last':''}>
+                              <td className="dt-td" style={{fontWeight:500}}>{item.document_type||'—'}</td>
+                              <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{item.category||'—'}</td>
+                              <td className="dt-td"><Badge label={item.status||'Pending'} cfg={DOC_BADGE}/></td>
+                              <td className="dt-td">
+                                {item.signature_required
+                                  ?ss==='signed'
+                                    ?<span className="dt-sig-badge" style={{background:'#dcfce7',color:'#15803d'}}><i className="ti ti-check" style={{fontSize:10}}/>Signed</span>
+                                    :ss==='requested'
+                                      ?<span className="dt-sig-badge" style={{background:'#fef3c7',color:'#b45309'}}><i className="ti ti-clock" style={{fontSize:10}}/>Pending</span>
+                                      :<button onClick={()=>requestSignature(item,order)} style={{fontSize:11,padding:'3px 10px',display:'inline-flex',alignItems:'center',gap:4,background:'#ede9fe',border:'1px solid #ddd6fe',color:'#7c3aed',borderRadius:5,cursor:'pointer',fontFamily:"'DM Sans',sans-serif"}}>
+                                          <i className="ti ti-signature"/>Request signature
+                                        </button>
+                                  :<span style={{color:'#e2e8f0',fontSize:12}}>—</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        }
+        <div style={{textAlign:'center',marginTop:20,fontSize:11,color:'#94a3b8'}}>
+          Powered by DocTrack · Showing your active shipments only
+        </div>
+      </div>
+      {portalToast&&<Toast toast={portalToast}/>}
+    </div>
+  );
+}
+
+function CustomerPortalsView({currentUser,showToast}){
+  const[customers,setCustomers]=useState([]);
+  const[portals,setPortals]=useState([]);
+  const[loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    async function load(){
+      const[{data:ords},{data:ps}]=await Promise.all([
+        sb.from('orders').select('customer_name').order('customer_name'),
+        sb.from('customer_portals').select('*')
+      ]);
+      const names=[...new Set((ords||[]).map(o=>o.customer_name).filter(Boolean))].sort();
+      setCustomers(names);setPortals(ps||[]);setLoading(false);
+    }
+    load();
+  },[]);
+
+  async function generatePortal(name){
+    const existing=portals.find(p=>p.customer_name===name);
+    if(existing){
+      await navigator.clipboard.writeText(`${location.origin}${location.pathname}?customer=${existing.portal_token}`);
+      showToast('Portal link copied');return;
+    }
+    const token=crypto.randomUUID();
+    const{error}=await sb.from('customer_portals').insert({portal_token:token,customer_name:name,created_by:currentUser?.email||currentUser?.username});
+    if(error){showToast('Failed: '+error.message,false);return;}
+    setPortals(p=>[...p,{portal_token:token,customer_name:name}]);
+    await navigator.clipboard.writeText(`${location.origin}${location.pathname}?customer=${token}`);
+    showToast('Portal created & link copied to clipboard');
+  }
+
+  async function revokePortal(name){
+    const portal=portals.find(p=>p.customer_name===name);
+    if(!portal)return;
+    await sb.from('customer_portals').delete().eq('portal_token',portal.portal_token);
+    setPortals(p=>p.filter(x=>x.customer_name!==name));
+    showToast('Portal revoked');
+  }
+
+  if(loading)return<div style={{padding:40,textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading&#x2026;</div>;
+
+  return(
+    <div className="dt-card">
+      <div className="dt-section-hdr">
+        Customer portals
+        <span style={{fontSize:11,color:'#94a3b8',fontWeight:400}}>Generate a magic link per customer — no login required</span>
+      </div>
+      {customers.length===0
+        ?<div style={{padding:'40px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No customers yet — create orders first</div>
+        :customers.map((name,i)=>{
+          const portal=portals.find(p=>p.customer_name===name);
+          const last=i===customers.length-1;
+          return(
+            <div key={name} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 16px',borderBottom:last?'none':'1px solid #f1f5f9',gap:12,flexWrap:'wrap'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div className="dt-avatar" style={{flexShrink:0}}>{name.slice(0,2).toUpperCase()}</div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:500,color:'#0f172a'}}>{name}</div>
+                  <div style={{fontSize:11,color:portal?'#16a34a':'#94a3b8'}}>{portal?'Portal active':'No portal'}</div>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:6}}>
+                <button onClick={()=>generatePortal(name)} style={{fontSize:12,display:'flex',alignItems:'center',gap:4,padding:'5px 12px',background:portal?'#dbeafe':'#f8fafc',border:`1px solid ${portal?'#bfdbfe':'#e2e8f0'}`,color:portal?'#1d4ed8':'#475569',borderRadius:6,cursor:'pointer',fontFamily:"'DM Sans',sans-serif"}}>
+                  <i className={`ti ${portal?'ti-link':'ti-plus'}`}/>{portal?'Copy link':'Generate portal'}
+                </button>
+                {portal&&<button onClick={()=>revokePortal(name)} style={{fontSize:12,padding:'5px 12px',color:'#b91c1c',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,cursor:'pointer',fontFamily:"'DM Sans',sans-serif"}}>Revoke</button>}
+              </div>
+            </div>
+          );
+        })
+      }
+    </div>
+  );
+}
+
 function SharedView({token}){
   const[order,setOrder]=useState(null);
   const[items,setItems]=useState([]);
@@ -1705,11 +2064,12 @@ function App(){
   const login=(u)=>{setUser(u);setView("dashboard");};
   const logout=()=>{sb.auth.signOut();setUser(null);setView("login");setOrderId(null);};
 
+  if(CUSTOMER_TOKEN) return <CustomerPortalView token={CUSTOMER_TOKEN}/>;
   if(SHARE_TOKEN) return <SharedView token={SHARE_TOKEN}/>;
   if(sessionLoading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
   if(!user) return <Login users={users} onLogin={login}/>;
 
-  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","kvk-search":"KVK Company Search"};
+  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","kvk-search":"KVK Company Search","customer-portals":"Customer portals"};
 
   return(
     <div className="dt-app">
@@ -1736,6 +2096,7 @@ function App(){
           {view==="kvk-search"&&<KVKSearch/>}
           {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
           {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}}/>}
+          {view==="customer-portals"&&canAdmin(user.role)&&<CustomerPortalsView currentUser={user} showToast={showToast}/>}
         </div>
       </div>
 
@@ -1755,7 +2116,9 @@ function App(){
           ready_to_ship:false
         }).select().single();
         if(error){showToast('Failed to create order: '+error.message,false);return;}
-        const docs=getRequiredDocs(f.destination);
+        const baseDocs=getRequiredDocs();
+        const condDocs=await getConditionalDocs(f.destination,f.incoterms);
+        const docs=[...baseDocs,...condDocs];
         await sb.from('checklist_items').insert(docs.map(d=>({
           order_id:newOrder.id,
           order_number:orderNumber,
