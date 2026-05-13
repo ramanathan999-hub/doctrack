@@ -410,6 +410,7 @@ function Sidebar({user,view,onNav,onLogout,open,onClose}){
           <div className="dt-nav-section" style={{marginTop:8}}>Admin</div>
           {item("ti-users","Users","users")}
           {item("ti-list-details","Order types","types")}
+          {item("ti-signature","Signature rules","signature-rules")}
           {item("ti-user-share","Customer portals","customer-portals")}
         </>}
       </div>
@@ -811,6 +812,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[editNotes,setEditNotes]=useState('');
   const[editExpiry,setEditExpiry]=useState('');
   const[editSigReq,setEditSigReq]=useState(false);
+  const[requestingSig,setRequestingSig]=useState(null);
   const ro=!canEdit(currentUser.role);
   const[uploading,setUploading]=useState(null);
   const[uploadTarget,setUploadTarget]=useState(null);
@@ -931,6 +933,21 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     await logActivity('order_status',{from:order.status,to:newStatus});
     setOrder(p=>({...p,status:newStatus,ready_to_ship:newStatus==="Complete"}));
     showToast('Order status updated');
+  }
+
+  async function requestSig(item){
+    if(isSeed){showToast('Not available for demo orders',false);return;}
+    setRequestingSig(item.id);
+    try{
+      const res=await fetch('https://ramanathan999.app.n8n.cloud/webhook/request-signature',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({item_id:item.id,order_number:order.order_number,destination_country:order.destination_country||''})
+      });
+      if(!res.ok)throw new Error(`HTTP ${res.status}`);
+      setItems(p=>p.map(i=>i.id===item.id?{...i,signature_status:'signed',signed_at:new Date().toISOString()}:i));
+      showToast('Document signed successfully');
+    }catch(e){showToast('Signature request failed — check n8n workflow',false);}
+    setRequestingSig(null);
   }
 
   function triggerUpload(item){setUploadTarget(item);fileInputRef.current.click();}
@@ -1083,10 +1100,15 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                           <button onClick={()=>setEditId(null)} style={{fontSize:11,padding:"4px 10px"}}>Cancel</button>
                         </div>
                       ):(
-                        <div style={{display:"flex",gap:6}}>
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                           {item.status!=="Verified"&&item.status!=="Waived"&&item.status!=="Complete"&&(
                             <button onClick={()=>submitDoc(item)} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4,background:"#dbeafe",borderColor:"#bfdbfe",color:"#1d4ed8"}}>
                               <i className="ti ti-send"/>Submit
+                            </button>
+                          )}
+                          {item.signature_required&&item.signature_status!=='signed'&&(
+                            <button onClick={()=>requestSig(item)} disabled={requestingSig===item.id} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4,background:"#ede9fe",borderColor:"#ddd6fe",color:"#7c3aed",opacity:requestingSig===item.id?.6:1}}>
+                              {requestingSig===item.id?<><i className="ti ti-loader-2"/>Sending…</>:<><i className="ti ti-pencil-check"/>Request sig.</>}
                             </button>
                           )}
                         </div>
@@ -1693,6 +1715,96 @@ function KVKSearch(){
   );
 }
 
+function SignatureRulesView({showToast}){
+  const[rules,setRules]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[adding,setAdding]=useState(false);
+  const[newRule,setNewRule]=useState({country:'',signer_name:'',signer_email:''});
+  const ur=(k,v)=>setNewRule(p=>({...p,[k]:v}));
+
+  useEffect(()=>{
+    sb.from('signature_rules').select('*').order('country',{ascending:true,nullsFirst:false}).then(({data})=>{setRules(data||[]);setLoading(false);});
+  },[]);
+
+  async function addRule(){
+    if(!newRule.signer_name.trim()||!newRule.signer_email.trim())return;
+    const{data,error}=await sb.from('signature_rules').insert({
+      country:newRule.country.trim()||null,
+      signer_name:newRule.signer_name.trim(),
+      signer_email:newRule.signer_email.trim()
+    }).select().single();
+    if(error){showToast('Failed: '+error.message,false);return;}
+    setRules(p=>[...p,data].sort((a,b)=>{if(!a.country)return 1;if(!b.country)return -1;return a.country.localeCompare(b.country);}));
+    setNewRule({country:'',signer_name:'',signer_email:''});
+    setAdding(false);showToast('Signer rule added');
+  }
+
+  async function deleteRule(id){
+    await sb.from('signature_rules').delete().eq('id',id);
+    setRules(p=>p.filter(r=>r.id!==id));
+    showToast('Rule removed');
+  }
+
+  if(loading)return<div style={{padding:40,textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading…</div>;
+
+  return(
+    <div className="dt-card">
+      <div className="dt-section-hdr">
+        Signature rules — signer per country
+        <button onClick={()=>setAdding(p=>!p)} style={{fontSize:12,display:'flex',alignItems:'center',gap:4,color:'#2563eb',background:'none',border:'none',cursor:'pointer',padding:0,fontFamily:"'DM Sans',sans-serif"}}>
+          <i className={`ti ${adding?'ti-x':'ti-plus'}`}/>{adding?'Cancel':'Add rule'}
+        </button>
+      </div>
+      {adding&&(
+        <div style={{padding:'12px 16px',background:'#f8fafc',borderBottom:'1px solid #e2e8f0',display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}}>
+          <div style={{display:'flex',flexDirection:'column',gap:3}}>
+            <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Country (blank = default fallback)</label>
+            <input value={newRule.country} onChange={e=>ur('country',e.target.value)} placeholder="e.g. Turkey" style={{fontSize:12,width:150}}/>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:3,flex:1}}>
+            <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Signer name</label>
+            <input value={newRule.signer_name} onChange={e=>ur('signer_name',e.target.value)} placeholder="e.g. Turkey Compliance Team" style={{fontSize:12}}/>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:3,flex:1}}>
+            <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Signer email</label>
+            <input type="email" value={newRule.signer_email} onChange={e=>ur('signer_email',e.target.value)} placeholder="e.g. compliance@company.com" style={{fontSize:12}}/>
+          </div>
+          <button onClick={addRule} disabled={!newRule.signer_name||!newRule.signer_email} className="dt-btn-primary" style={{fontSize:12,padding:'6px 14px',alignSelf:'flex-end'}}>Add</button>
+        </div>
+      )}
+      {rules.length===0&&!adding
+        ?<div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No rules yet. Add a default signer first (leave country blank), then add country-specific overrides.</div>
+        :<table className="dt-table">
+          <thead><tr>
+            <th className="dt-th">Country</th>
+            <th className="dt-th">Signer name</th>
+            <th className="dt-th">Signer email</th>
+            <th className="dt-th"/>
+          </tr></thead>
+          <tbody>
+            {rules.map((r,i)=>(
+              <tr key={r.id} className={i===rules.length-1?'dt-tr-last':''}>
+                <td className="dt-td">
+                  {r.country
+                    ?<span className="dt-badge" style={{background:'#f1f5f9',color:'#475569',fontSize:11}}>{r.country}</span>
+                    :<span className="dt-badge" style={{background:'#dcfce7',color:'#15803d',fontSize:11}}>Default — all countries</span>}
+                </td>
+                <td className="dt-td" style={{fontWeight:500}}>{r.signer_name}</td>
+                <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.signer_email}</td>
+                <td className="dt-td" style={{textAlign:'right'}}>
+                  <button onClick={()=>deleteRule(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}>
+                    <i className="ti ti-trash" style={{fontSize:14}}/>
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      }
+    </div>
+  );
+}
+
 function CustomerPortalView({token}){
   const[customerName,setCustomerName]=useState(null);
   const[orders,setOrders]=useState([]);
@@ -2066,7 +2178,7 @@ function App(){
   if(sessionLoading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
   if(!user) return <Login users={users} onLogin={login}/>;
 
-  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","kvk-search":"KVK Company Search","customer-portals":"Customer portals"};
+  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","kvk-search":"KVK Company Search","signature-rules":"Signature rules","customer-portals":"Customer portals"};
 
   return(
     <div className="dt-app">
@@ -2093,6 +2205,7 @@ function App(){
           {view==="kvk-search"&&<KVKSearch/>}
           {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
           {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}}/>}
+          {view==="signature-rules"&&canAdmin(user.role)&&<SignatureRulesView showToast={showToast}/>}
           {view==="customer-portals"&&canAdmin(user.role)&&<CustomerPortalsView currentUser={user} showToast={showToast}/>}
         </div>
       </div>
