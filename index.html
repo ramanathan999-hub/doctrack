@@ -2134,8 +2134,8 @@ function SharedView({token}){
                             {docLabel}
                             {exp&&exp.short!==item.valid_until&&<div style={{marginTop:2}}><span style={{fontSize:10,fontWeight:500,color:exp.color,background:exp.bg,padding:'1px 6px',borderRadius:3}}>{exp.short}</span></div>}
                           </td>
-                          <td className="dt-td"><Badge label={item.status||'Pending'} cfg={DOC_BADGE}/></td>
-                          {item.notes&&<td className="dt-td" style={{fontSize:11,color:'#94a3b8'}}>{item.notes}</td>}
+                          <td className="dt-td" style={{textAlign:'right',whiteSpace:'nowrap'}}><Badge label={item.status||'Pending'} cfg={DOC_BADGE}/></td>
+                          <td className="dt-td" style={{fontSize:11,color:'#94a3b8'}}>{item.notes||''}</td>
                         </tr>
                       );
                     })}
