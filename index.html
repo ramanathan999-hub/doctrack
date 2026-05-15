@@ -93,7 +93,16 @@ button:hover{background:#f8fafc}
 
 /* Login */
 .dt-login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f5f9}
-.dt-login-card{width:360px;background:#fff;border-radius:12px;border:1px solid #e2e8f0;padding:28px 26px;box-shadow:0 4px 24px rgba(0,0,0,.06)}
+.dt-login-card{width:390px;background:#fff;border-radius:14px;border:1px solid #e2e8f0;padding:32px 30px;box-shadow:0 4px 32px rgba(0,0,0,.07)}
+.dt-oauth-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:11px 16px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;font-family:'DM Sans',system-ui,sans-serif;font-size:14px;font-weight:400;color:#1e293b;cursor:pointer;transition:all .15s;margin-bottom:10px}
+.dt-oauth-btn:hover{background:#f8fafc;border-color:#cbd5e1}
+.dt-oauth-btn:disabled{opacity:.6;cursor:not-allowed}
+.dt-login-divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:#94a3b8;font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+.dt-login-divider::before,.dt-login-divider::after{content:'';flex:1;height:1px;background:#e2e8f0}
+.dt-demo-user{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;border:1px solid #f1f5f9;background:#f8fafc;cursor:pointer;transition:all .15s;margin-bottom:8px}
+.dt-demo-user:hover{border-color:#cbd5e1;background:#f1f5f9}
+.dt-demo-user:last-child{margin-bottom:0}
+.dt-demo-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0}
 
 /* Avatar */
 .dt-avatar{width:28px;height:28px;border-radius:50%;background:#dbeafe;color:#1d4ed8;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;flex-shrink:0}
@@ -342,42 +351,72 @@ function FField({label,children}){
 }
 
 function Login({users,onLogin}){
-  const[un,setUn]=useState("");
-  const[pw,setPw]=useState("");
-  const[err,setErr]=useState("");
-  const[loading,setLoading]=useState(false);
-  const go=async()=>{
-    setLoading(true);setErr('');
-    if(un.includes('@')){
-      const{data,error}=await sb.auth.signInWithPassword({email:un,password:pw});
-      if(data?.user){setLoading(false);return;}
-      if(error&&error.status!==400)setErr(error.message);
-    }
-    const u=users.find(u=>(u.username===un||u.email===un)&&u.password===pw&&u.active);
-    if(u)onLogin(u); else setErr("Invalid username or password.");
-    setLoading(false);
+  const[loading,setLoading]=useState(null);
+
+  const oAuth=async(provider)=>{
+    setLoading(provider);
+    await sb.auth.signInWithOAuth({provider,options:{redirectTo:window.location.origin}});
   };
+
+  const demo=(username)=>{
+    const u=users.find(u=>u.username===username&&u.active);
+    if(u)onLogin(u);
+  };
+
+  const demoUsers=[
+    {username:'admin',label:'Admin User',sub:'Admin · full access',color:'#7c3aed',bg:'#f5f3ff'},
+    {username:'sarah',label:'Sarah Chen',sub:'Manager · can edit',color:'#0284c7',bg:'#f0f9ff'},
+    {username:'james',label:'James Okafor',sub:'Viewer · read-only',color:'#059669',bg:'#f0fdf4'},
+  ];
+
   return(
     <div className="dt-login-page">
       <div className="dt-login-card">
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:28}}>
           <i className="ti ti-file-check" style={{fontSize:26,color:"#f97316"}}/>
           <div>
             <div style={{fontSize:18,fontWeight:500,color:"#0f172a"}}>DocTrack</div>
             <div style={{fontSize:9,color:"#94a3b8",letterSpacing:".1em",fontFamily:"'JetBrains Mono',monospace"}}>DOCUMENT CHECKLIST SYSTEM</div>
           </div>
         </div>
-        <div className="dt-field"><label>Username or email</label><input value={un} onChange={e=>setUn(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="username or email@company.com" autoFocus/></div>
-        <div className="dt-field"><label>Password</label><input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;"/></div>
-        {err&&<div style={{fontSize:12,color:"#b91c1c",marginBottom:10}}>{err}</div>}
-        <button onClick={go} disabled={loading} className="dt-btn-primary" style={{width:"100%",justifyContent:"center",display:"flex",alignItems:"center",gap:6}}>
-          {loading?'Signing in…':'Sign in'} <i className="ti ti-arrow-right"/>
+
+        <div style={{fontSize:15,fontWeight:500,color:"#0f172a",marginBottom:4}}>Sign in to DocTrack</div>
+        <div style={{fontSize:13,color:"#64748b",marginBottom:22}}>Use your work account to continue</div>
+
+        <button className="dt-oauth-btn" onClick={()=>oAuth('google')} disabled={!!loading}>
+          <svg width="18" height="18" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          {loading==='google'?'Redirecting…':'Continue with Google'}
         </button>
-        <div style={{marginTop:16,padding:"10px 12px",background:"#f8fafc",borderRadius:8,fontSize:11,color:"#64748b",lineHeight:1.9,fontFamily:"'JetBrains Mono',monospace"}}>
-          admin / admin &middot; full access<br/>
-          sarah / sarah &middot; manager<br/>
-          james / james &middot; viewer (read-only)
-        </div>
+
+        <button className="dt-oauth-btn" onClick={()=>oAuth('azure')} disabled={!!loading}>
+          <svg width="18" height="18" viewBox="0 0 23 23">
+            <rect x="1" y="1" width="10" height="10" fill="#F25022"/>
+            <rect x="12" y="1" width="10" height="10" fill="#7FBA00"/>
+            <rect x="1" y="12" width="10" height="10" fill="#00A4EF"/>
+            <rect x="12" y="12" width="10" height="10" fill="#FFB900"/>
+          </svg>
+          {loading==='azure'?'Redirecting…':'Continue with Microsoft'}
+        </button>
+
+        <div className="dt-login-divider">try the demo</div>
+
+        {demoUsers.map(({username,label,sub,color,bg})=>(
+          <div key={username} className="dt-demo-user" onClick={()=>demo(username)}>
+            <div className="dt-demo-avatar" style={{background:bg,color}}>
+              {label.split(' ').map(n=>n[0]).join('')}
+            </div>
+            <div>
+              <div style={{fontSize:13,fontWeight:500,color:"#0f172a"}}>{label}</div>
+              <div style={{fontSize:11,color:"#64748b"}}>{sub}</div>
+            </div>
+            <i className="ti ti-arrow-right" style={{marginLeft:'auto',fontSize:14,color:'#cbd5e1'}}/>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -575,27 +614,27 @@ function Dashboard({onNav}){
         ))}
       </div>
 
-      <div className="dt-stat-grid" style={{marginBottom:16}}>
-        {statCards.map(s=>(
-          <div key={s.label} className="dt-stat" style={{borderTop:`3px solid ${s.accent}`,padding:"14px 16px"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-              <div>
-                <div className="dt-stat-label" style={{marginBottom:6}}>{s.label}</div>
-                <div style={{fontSize:34,fontWeight:600,color:s.color,lineHeight:1}}>{s.val}</div>
-              </div>
-              <div style={{width:38,height:38,borderRadius:9,background:s.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                <i className={`ti ${s.icon}`} style={{fontSize:19,color:s.color}}/>
+      {/* Row 1: Stat cards + Status breakdown donut side by side */}
+      <div style={{display:"flex",gap:12,marginBottom:12,alignItems:"stretch"}}>
+        <div className="dt-stat-grid" style={{flex:1,margin:0}}>
+          {statCards.map(s=>(
+            <div key={s.label} className="dt-stat" style={{borderTop:`3px solid ${s.accent}`,padding:"14px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div className="dt-stat-label" style={{marginBottom:6}}>{s.label}</div>
+                  <div style={{fontSize:34,fontWeight:600,color:s.color,lineHeight:1}}>{s.val}</div>
+                </div>
+                <div style={{width:38,height:38,borderRadius:9,background:s.accent,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <i className={`ti ${s.icon}`} style={{fontSize:19,color:s.color}}/>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:12,marginBottom:12}}>
-        <div className="dt-card" style={{padding:"16px 18px"}}>
+          ))}
+        </div>
+        <div className="dt-card" style={{width:210,flexShrink:0,padding:"16px 18px"}}>
           <div style={{fontSize:13,fontWeight:500,color:"#0f172a",marginBottom:14}}>Status breakdown</div>
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:14}}>
-            <DonutChart segments={donut} size={130}/>
+            <DonutChart segments={donut} size={120}/>
             <div style={{width:"100%"}}>
               {[
                 {label:"Complete",   color:"#16a34a",v:byStatus["Complete"]},
@@ -612,7 +651,10 @@ function Dashboard({onNav}){
             </div>
           </div>
         </div>
+      </div>
 
+      {/* Row 2: Most incomplete + Expiring alert side by side */}
+      <div style={{display:"grid",gridTemplateColumns:expiring.length>0?"1fr 1fr":"1fr",gap:12,marginBottom:12}}>
         <div className="dt-card" style={{padding:"16px 20px"}}>
           <div style={{fontSize:13,fontWeight:500,color:"#0f172a",marginBottom:16}}>Most incomplete document types</div>
           {docGaps.length===0
@@ -632,30 +674,30 @@ function Dashboard({onNav}){
             </div>
           }
         </div>
-      </div>
-
-      {expiring.length>0&&(
-        <div className="dt-card" style={{marginBottom:12,padding:"12px 16px",borderLeft:"3px solid #d97706",display:"flex",alignItems:"flex-start",gap:12}}>
-          <i className="ti ti-alert-triangle" style={{fontSize:18,color:"#d97706",flexShrink:0,marginTop:1}}/>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:13,fontWeight:500,color:"#92400e",marginBottom:8}}>
-              {expiring.length} document{expiring.length>1?"s":""} expiring or expired
-            </div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-              {expiring.slice(0,12).map(i=>{
-                const exp=expiryState(i.valid_until);
-                return(
-                  <span key={i.id||i.document_type+i.order_number} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:exp.bg,color:exp.color,fontWeight:500}}>
-                    {i.document_type} <span style={{opacity:.7}}>({i.order_number})</span> · {exp.short}
-                  </span>
-                );
-              })}
-              {expiring.length>12&&<span style={{fontSize:11,color:"#94a3b8",alignSelf:"center"}}>+{expiring.length-12} more</span>}
+        {expiring.length>0&&(
+          <div className="dt-card" style={{padding:"12px 16px",borderLeft:"3px solid #d97706",display:"flex",alignItems:"flex-start",gap:12}}>
+            <i className="ti ti-alert-triangle" style={{fontSize:18,color:"#d97706",flexShrink:0,marginTop:1}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:500,color:"#92400e",marginBottom:8}}>
+                {expiring.length} document{expiring.length>1?"s":""} expiring or expired
+              </div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {expiring.slice(0,12).map(i=>{
+                  const exp=expiryState(i.valid_until);
+                  return(
+                    <span key={i.id||i.document_type+i.order_number} style={{fontSize:11,padding:"2px 8px",borderRadius:4,background:exp.bg,color:exp.color,fontWeight:500}}>
+                      {i.document_type} <span style={{opacity:.7}}>({i.order_number})</span> · {exp.short}
+                    </span>
+                  );
+                })}
+                {expiring.length>12&&<span style={{fontSize:11,color:"#94a3b8",alignSelf:"center"}}>+{expiring.length-12} more</span>}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
+      {/* Row 3: Overdue alert full width */}
       {overdueOrders.length>0&&(
         <div className="dt-card" style={{marginBottom:12,borderLeft:"3px solid #dc2626"}}>
           <div style={{padding:"12px 16px",display:"flex",alignItems:"flex-start",gap:12}}>
