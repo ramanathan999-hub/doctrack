@@ -976,8 +976,8 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     try{
       const{data:rule}=await sb.from('signature_rules')
         .select('signer_email')
-        .or(`destination_country.eq.${order.destination_country||''},destination_country.is.null`)
-        .order('destination_country',{ascending:false})
+        .or(`country.eq.${order.destination_country||''},country.is.null`)
+        .order('country',{ascending:false})
         .limit(1)
         .maybeSingle();
       setSigModal({item,signerEmail:rule?.signer_email||null});
