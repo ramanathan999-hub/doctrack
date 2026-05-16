@@ -433,7 +433,8 @@ function Sidebar({user,view,onNav,onLogout,open,onClose}){
         <div className="dt-nav-section">Main</div>
         {item("ti-layout-dashboard","Dashboard","dashboard")}
         {item("ti-clipboard-list","Orders","orders")}
-        <div className="dt-nav-section" style={{marginTop:8}}>Tools</div>
+        <div className="dt-nav-section" style={{marginTop:8}}>Integrations</div>
+        {item("ti-plug-connected","Integrations","integrations")}
         {item("ti-building","KVK Search","kvk-search")}
         {canAdmin(user.role)&&<>
           <div className="dt-nav-section" style={{marginTop:8}}>Admin</div>
@@ -854,6 +855,8 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[newEvDate,setNewEvDate]=useState('');
   const[newEvNotes,setNewEvNotes]=useState('');
   const[savingEvent,setSavingEvent]=useState(false);
+  const[sigModal,setSigModal]=useState(null);
+  const[sigSentModal,setSigSentModal]=useState(null);
 
   useEffect(()=>{load();},[orderId]);
 
@@ -967,8 +970,25 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     showToast('Order status updated');
   }
 
-  async function requestSig(item){
+  async function openSigModal(item){
     if(isSeed){showToast('Not available for demo orders',false);return;}
+    setRequestingSig(item.id);
+    try{
+      const{data:rule}=await sb.from('signature_rules')
+        .select('signer_email')
+        .or(`destination_country.eq.${order.destination_country||''},destination_country.is.null`)
+        .order('destination_country',{ascending:false})
+        .limit(1)
+        .maybeSingle();
+      setSigModal({item,signerEmail:rule?.signer_email||null});
+    }catch(e){showToast('Could not load signer info',false);}
+    setRequestingSig(null);
+  }
+
+  async function sendSigRequest(){
+    const item=sigModal.item;
+    const capturedEmail=sigModal.signerEmail;
+    setSigModal(null);
     setRequestingSig(item.id);
     try{
       const res=await fetch('https://ramanathan999.app.n8n.cloud/webhook/request-signature',{
@@ -982,8 +1002,10 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
       }else if(data.status==='no_signer_configured'){
         showToast('No signer configured for this destination — add a signature rule in Admin → Signature Rules',false);
       }else if(data.status==='requested'){
-        setItems(p=>p.map(i=>i.id===item.id?{...i,signature_status:'requested'}:i));
-        showToast('Signature request sent to signer via email');
+        const signerEmail=capturedEmail||data.signer_email||'signer';
+        await sb.from('checklist_items').update({signed_by:signerEmail}).eq('id',item.id);
+        setItems(p=>p.map(i=>i.id===item.id?{...i,signature_status:'requested',signed_by:signerEmail}:i));
+        setSigSentModal({email:signerEmail});
       }else{
         showToast('Signature request failed — unexpected response',false);
       }
@@ -1099,6 +1121,11 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                             ?<span className="dt-sig-badge" style={{background:'#fef3c7',color:'#b45309'}}><i className="ti ti-clock" style={{fontSize:10}}/>Sig. pending</span>
                             :<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Needs sig.</span>
                         )}
+                        {item.signature_required&&item.signature_status==='requested'&&item.signed_by&&(
+                          <span style={{fontSize:10,color:'#92400e',display:'inline-flex',alignItems:'center',gap:3}}>
+                            <i className="ti ti-user" style={{fontSize:9}}/>{item.signed_by}
+                          </span>
+                        )}
                       </div>
                       {(()=>{const exp=expiryState(item.valid_until);return exp&&exp.short!==item.valid_until?(<div style={{marginTop:3}}><span style={{fontSize:10,fontWeight:500,color:exp.color,background:exp.bg,padding:"1px 6px",borderRadius:3,display:"inline-flex",alignItems:"center",gap:4}}><i className="ti ti-calendar-x" style={{fontSize:10}}/>{exp.short}</span></div>):null;})()}
                     </td>
@@ -1148,7 +1175,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                             </button>
                           )}
                           {item.signature_required&&item.signature_status!=='signed'&&(
-                            <button onClick={()=>requestSig(item)} disabled={requestingSig===item.id} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4,background:"#ede9fe",borderColor:"#ddd6fe",color:"#7c3aed",opacity:requestingSig===item.id?.6:1}}>
+                            <button onClick={()=>openSigModal(item)} disabled={requestingSig===item.id} style={{fontSize:11,padding:"4px 10px",display:"flex",alignItems:"center",gap:4,background:"#ede9fe",borderColor:"#ddd6fe",color:"#7c3aed",opacity:requestingSig===item.id?.6:1}}>
                               {requestingSig===item.id?<><i className="ti ti-loader-2"/>Sending…</>:<><i className="ti ti-pencil-check"/>Request sig.</>}
                             </button>
                           )}
@@ -1256,6 +1283,50 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                 })}
               </div>
             }
+          </div>
+        </div>
+      )}
+
+      {sigModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div className="dt-card" style={{width:"100%",maxWidth:420,padding:"24px 28px",margin:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+              <div style={{width:36,height:36,borderRadius:8,background:"#ede9fe",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <i className="ti ti-pencil-check" style={{fontSize:18,color:"#7c3aed"}}/>
+              </div>
+              <div>
+                <div style={{fontSize:14,fontWeight:600,color:"#0f172a"}}>Request signature</div>
+                <div style={{fontSize:12,color:"#64748b"}}>{sigModal.item.document_type}</div>
+              </div>
+            </div>
+            <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,padding:"12px 14px",marginBottom:18}}>
+              <div style={{fontSize:11,color:"#64748b",marginBottom:4}}>Signature request will be emailed to:</div>
+              {sigModal.signerEmail
+                ?<div style={{fontSize:13,fontWeight:600,color:"#0f172a",display:"flex",alignItems:"center",gap:6}}>
+                    <i className="ti ti-mail" style={{color:"#7c3aed"}}/>{sigModal.signerEmail}
+                  </div>
+                :<div style={{fontSize:12,color:"#ef4444"}}>No signer configured for this destination. Add a rule in Admin → Signature Rules.</div>
+              }
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setSigModal(null)} style={{fontSize:12,padding:"6px 14px"}}>Cancel</button>
+              <button onClick={sendSigRequest} disabled={!sigModal.signerEmail} className="dt-btn-primary" style={{fontSize:12,padding:"6px 16px",display:"flex",alignItems:"center",gap:6,opacity:sigModal.signerEmail?1:.45}}>
+                <i className="ti ti-send"/>Send request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sigSentModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div className="dt-card" style={{width:"100%",maxWidth:380,padding:"28px",margin:16,textAlign:"center"}}>
+            <div style={{width:52,height:52,borderRadius:"50%",background:"#dcfce7",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px"}}>
+              <i className="ti ti-mail-check" style={{fontSize:26,color:"#15803d"}}/>
+            </div>
+            <div style={{fontSize:15,fontWeight:600,color:"#0f172a",marginBottom:6}}>Email sent</div>
+            <div style={{fontSize:13,color:"#64748b",marginBottom:20}}>Signature request sent to<br/><strong style={{color:"#0f172a"}}>{sigSentModal.email}</strong></div>
+            <button onClick={()=>setSigSentModal(null)} className="dt-btn-primary" style={{fontSize:13,padding:"7px 24px"}}>Done</button>
           </div>
         </div>
       )}
@@ -1686,6 +1757,59 @@ function CsvImportModal({onClose,onImported,showToast}){
         </div>
       )}
     </ModalWrap>
+  );
+}
+
+function IntegrationsView(){
+  const integrations=[
+    {id:'kvk',name:'KVK Business Register',desc:'Dutch chamber of commerce — company lookup and verification',mark:'KVK',color:'#1d4ed8',bg:'#dbeafe',status:'connected',category:'Compliance & Registry'},
+    {id:'nvwa',name:'NVWA',desc:'Netherlands Food and Consumer Product Safety Authority — chemical product compliance',mark:'NV',color:'#15803d',bg:'#dcfce7',status:'connect',category:'Compliance & Registry'},
+    {id:'customs',name:'Dutch Customs',desc:'Douane NL — import/export declarations and tariff codes',mark:'DC',color:'#b45309',bg:'#fef3c7',status:'connect',category:'Compliance & Registry'},
+    {id:'echa',name:'ECHA',desc:'European Chemicals Agency — REACH/CLP substance compliance lookups',mark:'EC',color:'#7c3aed',bg:'#ede9fe',status:'connect',category:'Compliance & Registry'},
+    {id:'hellosign',name:'Dropbox Sign',desc:'E-signature requests and signed PDF callbacks — active on signature docs',mark:'DS',color:'#0369a1',bg:'#e0f2fe',status:'connected',category:'Documents & Signatures'},
+    {id:'sap',name:'SAP ERP',desc:'Pull shipment orders and master data directly from SAP via RFC or ODATA',mark:'SAP',color:'#e11d48',bg:'#ffe4e6',status:'connect',category:'ERP & Trade Systems'},
+    {id:'sapgts',name:'SAP GTS',desc:'Global Trade Services — customs documents, denied-party screening, licence management',mark:'GTS',color:'#9f1239',bg:'#ffe4e6',status:'connect',category:'ERP & Trade Systems'},
+    {id:'excel',name:'Excel / CSV Import',desc:'Bulk-import order lists and document metadata from spreadsheets',mark:'XLS',color:'#15803d',bg:'#dcfce7',status:'connect',category:'ERP & Trade Systems'},
+    {id:'webhook',name:'Generic Webhook',desc:'Push order events to any external system via outbound webhook',mark:'WH',color:'#64748b',bg:'#f1f5f9',status:'connect',category:'ERP & Trade Systems'},
+    {id:'bertschi',name:'Bertschi Group',desc:'ISO-tank and bulk chemical logistics — shipment status and documentation',mark:'BE',color:'#0f766e',bg:'#ccfbf1',status:'connect',category:'Chemical Freight'},
+    {id:'hoyer',name:'Hoyer Group',desc:'Tank container operator — transport orders, inspection certificates',mark:'HO',color:'#1d4ed8',bg:'#dbeafe',status:'connect',category:'Chemical Freight'},
+    {id:'stolt',name:'Stolt-Nielsen',desc:'Parcel tanker and tank container services — BL and manifest retrieval',mark:'SN',color:'#7c3aed',bg:'#ede9fe',status:'connect',category:'Chemical Freight'},
+    {id:'zencargo',name:'Zencargo',desc:'Digital freight forwarder — shipment tracking and documentation API',mark:'ZC',color:'#0369a1',bg:'#e0f2fe',status:'connect',category:'Chemical Freight'},
+  ];
+  const categories=['Compliance & Registry','Documents & Signatures','ERP & Trade Systems','Chemical Freight'];
+  return(
+    <div>
+      <div className="dt-card" style={{padding:"20px 24px",marginBottom:14}}>
+        <div style={{fontSize:15,fontWeight:600,color:"#0f172a",marginBottom:4}}>Integrations</div>
+        <div style={{fontSize:13,color:"#64748b"}}>Connect DocTrack to your existing systems. Connected integrations sync data automatically; others can be enabled on request.</div>
+      </div>
+      {categories.map(cat=>{
+        const cards=integrations.filter(i=>i.category===cat);
+        return(
+          <div key={cat} className="dt-card" style={{padding:"16px 20px",marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#94a3b8",letterSpacing:".08em",textTransform:"uppercase",marginBottom:14}}>{cat}</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>
+              {cards.map(int=>(
+                <div key={int.id} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px 14px",border:"1px solid #e2e8f0",borderRadius:10,background:int.status==='connected'?"#fafffe":"#fff"}}>
+                  <div style={{width:36,height:36,borderRadius:8,background:int.bg,color:int.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,letterSpacing:".03em",flexShrink:0}}>{int.mark}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
+                      <span style={{fontSize:13,fontWeight:600,color:"#0f172a"}}>{int.name}</span>
+                      {int.status==='connected'&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:20,background:"#dcfce7",color:"#15803d",fontWeight:500}}>Connected</span>}
+                    </div>
+                    <div style={{fontSize:11,color:"#64748b",lineHeight:1.5,marginBottom:8}}>{int.desc}</div>
+                    {int.status==='connected'
+                      ?<button style={{fontSize:11,padding:"3px 10px",background:"none",border:"1px solid #e2e8f0",borderRadius:5,color:"#64748b",cursor:"pointer"}}>Manage</button>
+                      :<button style={{fontSize:11,padding:"3px 10px",background:"#f8fafc",border:"1px solid #cbd5e1",borderRadius:5,color:"#0f172a",cursor:"pointer"}}>Connect</button>
+                    }
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -2225,7 +2349,7 @@ function App(){
   if(sessionLoading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
   if(!user) return <Login users={users} onLogin={login}/>;
 
-  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","kvk-search":"KVK Company Search","signature-rules":"Signature rules","customer-portals":"Customer portals"};
+  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types",integrations:"Integrations","kvk-search":"KVK Company Search","signature-rules":"Signature rules","customer-portals":"Customer portals"};
 
   return(
     <div className="dt-app">
@@ -2249,6 +2373,7 @@ function App(){
           {view==="order-detail"&&orderId&&(
             <OrderDetail orderId={orderId} currentUser={user} showToast={showToast} onBack={()=>nav("orders")}/>
           )}
+          {view==="integrations"&&<IntegrationsView/>}
           {view==="kvk-search"&&<KVKSearch/>}
           {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
           {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}}/>}
