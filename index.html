@@ -442,7 +442,7 @@ function Login({users,onLogin}){
   );
 }
 
-function Sidebar({user,view,onNav,onLogout,open,onClose}){
+function Sidebar({user,view,onNav,onLogout,open,onClose,onSecurity}){
   const item=(icon,label,target)=>{
     const active=view===target||(target==="orders"&&view==="order-detail");
     return(
@@ -483,9 +483,14 @@ function Sidebar({user,view,onNav,onLogout,open,onClose}){
             <span className="dt-badge" style={{background:rb.bg,color:rb.color,fontSize:10,padding:"1px 6px"}}>{user.role}</span>
           </div>
         </div>
-        <button onClick={onLogout} style={{width:"100%",display:"flex",alignItems:"center",gap:6,justifyContent:"center",fontSize:12,color:"#64748b"}}>
-          <i className="ti ti-logout"/>Sign out
-        </button>
+        <div style={{display:"flex",gap:6,marginBottom:4}}>
+          <button onClick={onSecurity} style={{flex:1,display:"flex",alignItems:"center",gap:5,justifyContent:"center",fontSize:12,color:"#64748b",background:"none",border:"1px solid #e2e8f0",borderRadius:6,padding:"5px"}}>
+            <i className="ti ti-shield-lock" style={{fontSize:13}}/>Security
+          </button>
+          <button onClick={onLogout} style={{flex:1,display:"flex",alignItems:"center",gap:5,justifyContent:"center",fontSize:12,color:"#64748b",background:"none",border:"1px solid #e2e8f0",borderRadius:6,padding:"5px"}}>
+            <i className="ti ti-logout" style={{fontSize:13}}/>Sign out
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -894,6 +899,11 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[downloadingAll,setDownloadingAll]=useState(false);
   const[historyModal,setHistoryModal]=useState(null);
   const[docVersions,setDocVersions]=useState([]);
+  const[freightEdit,setFreightEdit]=useState(false);
+  const[freightBudget,setFreightBudget]=useState('');
+  const[freightActual,setFreightActual]=useState('');
+  const[freightTolerance,setFreightTolerance]=useState(10);
+  const[savingFreight,setSavingFreight]=useState(false);
 
   useEffect(()=>{load();},[orderId]);
 
@@ -908,6 +918,9 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
       ]);
       setOrder(sbOrder);setItems(sbItems||[]);setActivity(sbAct||[]);setShipmentEvents(sbEvs||[]);setIsSeed(false);
       setContainerInput(sbOrder.container_numbers||'');
+      setFreightBudget(sbOrder.freight_cost_budget||'');
+      setFreightActual(sbOrder.freight_cost_actual||'');
+      setFreightTolerance(sbOrder.freight_cost_tolerance_pct||10);
     } else {
       const seed=SEED_ORDERS.find(o=>o.id===orderId);
       if(seed){
@@ -1081,6 +1094,16 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     setSavingContainer(false);setEditingContainer(false);
   }
 
+  async function saveFreightCosts(){
+    if(isSeed){showToast('Not available for demo orders',false);setFreightEdit(false);return;}
+    setSavingFreight(true);
+    const patch={freight_cost_budget:freightBudget?parseFloat(freightBudget):null,freight_cost_actual:freightActual?parseFloat(freightActual):null,freight_cost_tolerance_pct:parseInt(freightTolerance)||10};
+    const{error}=await sb.from('orders').update(patch).eq('order_number',order.order_number);
+    if(error){showToast('Failed to save freight costs',false);}
+    else{setOrder(p=>({...p,...patch}));showToast('Freight costs saved');}
+    setSavingFreight(false);setFreightEdit(false);
+  }
+
   async function openSigModal(item){
     if(isSeed){showToast('Not available for demo orders',false);return;}
     setRequestingSig(item.id);
@@ -1228,6 +1251,52 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
           </div>
         </div>
       </div>
+      {!isSeed&&(
+        <div className="dt-card" style={{marginBottom:14}}>
+          <div className="dt-section-hdr" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>Freight &amp; costs</span>
+            {!ro&&<button onClick={()=>{setFreightEdit(p=>!p);}} style={{fontSize:11,padding:"3px 10px"}}>{freightEdit?"Cancel":"Edit"}</button>}
+          </div>
+          <div style={{padding:"14px 18px"}}>
+            {freightEdit?(
+              <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+                {[["BUDGET (EUR)",freightBudget,setFreightBudget,120],["ACTUAL (EUR)",freightActual,setFreightActual,120],["TOLERANCE (%)",freightTolerance,v=>setFreightTolerance(parseInt(v)||10),70]].map(([lbl,val,setter,w])=>(
+                  <div key={lbl}>
+                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em",marginBottom:3}}>{lbl}</div>
+                    <input type="number" value={val} onChange={e=>setter(e.target.value)} style={{fontSize:12,padding:"5px 8px",width:w}}/>
+                  </div>
+                ))}
+                <button onClick={saveFreightCosts} disabled={savingFreight} className="dt-btn-primary" style={{fontSize:12,padding:"5px 14px"}}>{savingFreight?"Saving…":"Save"}</button>
+              </div>
+            ):(
+              <div style={{display:"flex",gap:28,flexWrap:"wrap",alignItems:"center"}}>
+                {[["BUDGET",order.freight_cost_budget],["ACTUAL",order.freight_cost_actual],["TOLERANCE",order.freight_cost_tolerance_pct!=null?`${order.freight_cost_tolerance_pct}%`:null]].map(([lbl,val])=>(
+                  <div key={lbl}>
+                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em",marginBottom:2}}>{lbl}</div>
+                    <div style={{fontSize:14,fontWeight:500,color:"#0f172a"}}>{val!=null&&val!==''?(lbl!=="TOLERANCE"?`EUR ${parseFloat(val).toLocaleString()}`:val):"—"}</div>
+                  </div>
+                ))}
+                {(()=>{
+                  const b=parseFloat(order.freight_cost_budget),a=parseFloat(order.freight_cost_actual);
+                  if(!b||!a)return<div style={{fontSize:12,color:"#94a3b8"}}>Enter budget and actual to see variance</div>;
+                  const tol=order.freight_cost_tolerance_pct||10;
+                  const pct=Math.abs((a-b)/b*100);const ok=pct<=tol;
+                  return(
+                    <div style={{padding:"8px 14px",borderRadius:8,background:ok?"#dcfce7":"#fee2e2",border:`1px solid ${ok?"#bbf7d0":"#fecaca"}`,display:"flex",alignItems:"center",gap:8}}>
+                      <i className={`ti ${ok?"ti-circle-check":"ti-alert-triangle"}`} style={{fontSize:18,color:ok?"#15803d":"#dc2626"}}/>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:600,color:ok?"#15803d":"#dc2626"}}>{ok?`Within ${tol}% tolerance`:`${pct.toFixed(1)}% outside tolerance`}</div>
+                        <div style={{fontSize:11,color:ok?"#166534":"#b91c1c"}}>{a>b?"+":"−"}EUR {Math.abs(a-b).toLocaleString(undefined,{maximumFractionDigits:0})} vs budget</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="dt-card">
         <div className="dt-section-hdr">
           Document checklist
@@ -2599,6 +2668,98 @@ function SharedView({token}){
   );
 }
 
+/* ── Security / 2FA Modal ── */
+function SecurityModal({user,onClose}){
+  const[mfaFactors,setMfaFactors]=useState(null);
+  const[enrollData,setEnrollData]=useState(null);
+  const[factorId,setFactorId]=useState(null);
+  const[verifyCode,setVerifyCode]=useState('');
+  const[loading,setLoading]=useState(true);
+  const[verifying,setVerifying]=useState(false);
+  const[msg,setMsg]=useState(null);
+  const isOAuth=user.id&&!/^u\d+$/.test(user.id);
+
+  useEffect(()=>{
+    if(!isOAuth){setLoading(false);return;}
+    sb.auth.mfa.listFactors().then(({data})=>{setMfaFactors(data?.totp||[]);setLoading(false);});
+  },[]);
+
+  async function startEnroll(){
+    setLoading(true);
+    const{data,error}=await sb.auth.mfa.enroll({factorType:'totp'});
+    if(error){setMsg({ok:false,text:error.message});setLoading(false);return;}
+    setFactorId(data.id);setEnrollData(data.totp);setLoading(false);
+  }
+
+  async function verifyEnroll(){
+    setVerifying(true);
+    const{data:ch}=await sb.auth.mfa.challenge({factorId});
+    const{error}=await sb.auth.mfa.verify({factorId,challengeId:ch.id,code:verifyCode});
+    if(error){setMsg({ok:false,text:error.message});setVerifying(false);return;}
+    setEnrollData(null);setVerifyCode('');
+    const{data}=await sb.auth.mfa.listFactors();
+    setMfaFactors(data?.totp||[]);
+    setMsg({ok:true,text:'Two-factor authentication enabled'});
+    setVerifying(false);
+  }
+
+  async function unenroll(id){
+    const{error}=await sb.auth.mfa.unenroll({factorId:id});
+    if(error){setMsg({ok:false,text:error.message});return;}
+    setMfaFactors(p=>p.filter(f=>f.id!==id));
+    setMsg({ok:true,text:'Two-factor authentication removed'});
+  }
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div className="dt-card" style={{width:"100%",maxWidth:440,padding:"24px 28px",margin:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+          <div style={{fontSize:15,fontWeight:600,color:"#0f172a"}}>Security settings</div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:20}}><i className="ti ti-x"/></button>
+        </div>
+        {msg&&<div style={{padding:"8px 12px",borderRadius:6,background:msg.ok?"#dcfce7":"#fee2e2",color:msg.ok?"#15803d":"#b91c1c",fontSize:12,marginBottom:14}}>{msg.text}</div>}
+        {!isOAuth
+          ?<div style={{textAlign:"center",padding:"20px 0",color:"#94a3b8",fontSize:13}}>
+              <i className="ti ti-shield-off" style={{fontSize:32,display:"block",marginBottom:8,color:"#e2e8f0"}}/>
+              MFA is available for accounts signed in via Google OAuth.
+            </div>
+          :loading
+            ?<div style={{textAlign:"center",padding:"24px",color:"#94a3b8"}}>Loading…</div>
+            :enrollData
+              ?<div>
+                  <div style={{fontSize:13,fontWeight:500,color:"#0f172a",marginBottom:10}}>Scan with your authenticator app</div>
+                  <div style={{textAlign:"center",margin:"10px 0"}}><img src={enrollData.qr_code} style={{width:180,height:180}}/></div>
+                  <div style={{fontSize:11,color:"#64748b",marginBottom:12}}>Or enter manually: <code style={{background:"#f1f5f9",padding:"2px 6px",borderRadius:4,fontSize:10}}>{enrollData.secret}</code></div>
+                  <div style={{display:"flex",gap:8}}>
+                    <input value={verifyCode} onChange={e=>setVerifyCode(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="6-digit code" maxLength={6} style={{flex:1,fontSize:14,padding:"7px 10px",fontFamily:"'JetBrains Mono',monospace",letterSpacing:".2em"}} autoFocus/>
+                    <button onClick={verifyEnroll} disabled={verifyCode.length!==6||verifying} className="dt-btn-primary" style={{fontSize:12,padding:"7px 14px"}}>{verifying?"Verifying…":"Verify"}</button>
+                  </div>
+                </div>
+              :<div>
+                  <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:8,background:"#f8fafc",border:"1px solid #e2e8f0",marginBottom:16}}>
+                    <div style={{width:38,height:38,borderRadius:9,background:mfaFactors?.length?"#dcfce7":"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <i className={`ti ${mfaFactors?.length?"ti-shield-check":"ti-shield"}`} style={{fontSize:20,color:mfaFactors?.length?"#15803d":"#94a3b8"}}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:500,color:"#0f172a"}}>Two-factor authentication</div>
+                      <div style={{fontSize:11,color:mfaFactors?.length?"#15803d":"#64748b"}}>{mfaFactors?.length?"Enabled — your account is protected":"Not enabled"}</div>
+                    </div>
+                  </div>
+                  {mfaFactors?.length
+                    ?<button onClick={()=>unenroll(mfaFactors[0].id)} style={{width:"100%",fontSize:12,padding:"7px",color:"#dc2626",border:"1px solid #fecaca",borderRadius:6,background:"#fff",cursor:"pointer"}}>Remove two-factor authentication</button>
+                    :<button onClick={startEnroll} className="dt-btn-primary" style={{width:"100%",fontSize:12,padding:"7px"}}>Enable two-factor authentication (TOTP)</button>
+                  }
+                </div>
+        }
+        <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #f1f5f9",display:"flex",gap:10,alignItems:"center"}}>
+          <div className="dt-avatar" style={{width:28,height:28,fontSize:11}}>{(user.name||user.email||'?').slice(0,1).toUpperCase()}</div>
+          <div><div style={{fontSize:12,color:"#0f172a"}}>{user.email||user.username}</div><div style={{fontSize:10,color:"#94a3b8"}}>Role: {user.role}</div></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main App ── */
 function App(){
   const[user,setUser]=useState(null);
@@ -2611,6 +2772,7 @@ function App(){
   const[toast,setToast]=useState(null);
   const[modal,setModal]=useState(null);
   const[sidebarOpen,setSidebarOpen]=useState(false);
+  const[showSecurity,setShowSecurity]=useState(false);
 
   useEffect(()=>{
     function sbUserToAppUser(u){
@@ -2661,7 +2823,7 @@ function App(){
 
   return(
     <div className="dt-app">
-      <Sidebar user={user} view={view} onNav={v=>nav(v)} onLogout={logout} open={sidebarOpen} onClose={()=>setSidebarOpen(false)}/>
+      <Sidebar user={user} view={view} onNav={v=>nav(v)} onLogout={logout} open={sidebarOpen} onClose={()=>setSidebarOpen(false)} onSecurity={()=>setShowSecurity(true)}/>
       {sidebarOpen&&<div onClick={()=>setSidebarOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",zIndex:99}}/>}
       <div className="dt-main">
         <div className="dt-topbar">
@@ -2729,6 +2891,7 @@ function App(){
       {modal==="type"&&<CreateTypeModal onClose={()=>setModal(null)} onCreate={f=>{setOrderTypes(p=>[...p,{...f,id:`ot${p.length+1}`,docs:[]}]);setModal(null);showToast("Order type created");}}/>}
 
       <Toast toast={toast}/>
+      {showSecurity&&<SecurityModal user={user} onClose={()=>setShowSecurity(false)}/>}
       {timeoutWarning&&(
         <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",zIndex:300,background:"#1e3a5f",color:"#fff",borderRadius:10,padding:"12px 20px",fontSize:13,display:"flex",alignItems:"center",gap:12,boxShadow:"0 4px 24px rgba(0,0,0,.25)"}}>
           <i className="ti ti-clock-exclamation" style={{fontSize:18,color:"#fbbf24"}}/>
