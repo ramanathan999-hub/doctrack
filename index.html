@@ -470,6 +470,7 @@ function Sidebar({user,view,onNav,onLogout,open,onClose,onSecurity}){
           <div className="dt-nav-section" style={{marginTop:8}}>Admin</div>
           {item("ti-users","Users","users")}
           {item("ti-list-details","Order types","types")}
+          {item("ti-map-pin","Country doc needs","country-doc-needs")}
           {item("ti-signature","Signature rules","signature-rules")}
           {item("ti-file-text","Customer doc rules","customer-doc-rules")}
           {item("ti-user-share","Customer portals","customer-portals")}
@@ -1631,35 +1632,6 @@ function TypesView({orderTypes,onAddDoc}){
   const[docName,setDocName]=useState("");
   const[docCat,setDocCat]=useState("");
   const[docReq,setDocReq]=useState(true);
-  const[rules,setRules]=useState([]);
-  const[rulesLoading,setRulesLoading]=useState(true);
-  const[addingRule,setAddingRule]=useState(false);
-  const[newRule,setNewRule]=useState({document_type:'',category:'',source:'',condition_field:'destination',condition_value:'',signature_required:false});
-  const ur=(k,v)=>setNewRule(p=>({...p,[k]:v}));
-
-  useEffect(()=>{
-    sb.from('doc_rules').select('*').order('condition_field').then(({data})=>{setRules(data||[]);setRulesLoading(false);});
-  },[]);
-
-  async function saveRule(){
-    if(!newRule.document_type.trim()||!newRule.condition_value.trim())return;
-    const{data,error}=await sb.from('doc_rules').insert({...newRule,document_type:newRule.document_type.trim(),category:newRule.category.trim()||'General',source:newRule.source.trim(),condition_value:newRule.condition_value.trim()}).select().single();
-    if(error){alert('Failed: '+error.message);return;}
-    setRules(p=>[...p,data]);
-    setNewRule({document_type:'',category:'',source:'',condition_field:'destination',condition_value:''});
-    setAddingRule(false);
-  }
-
-  async function deleteRule(id){
-    await sb.from('doc_rules').delete().eq('id',id);
-    setRules(p=>p.filter(r=>r.id!==id));
-  }
-
-  async function toggleSigReq(id,current){
-    const val=!current;
-    await sb.from('doc_rules').update({signature_required:val}).eq('id',id);
-    setRules(p=>p.map(r=>r.id===id?{...r,signature_required:val}:r));
-  }
 
   return(
     <div>
@@ -1713,88 +1685,188 @@ function TypesView({orderTypes,onAddDoc}){
         </div>
       ))}
 
-      <div className="dt-card" style={{marginTop:20}}>
+    </div>
+  );
+}
+
+function CountryDocNeedsView({showToast}){
+  const[rules,setRules]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[addingRule,setAddingRule]=useState(false);
+  const[viewMode,setViewMode]=useState('list'); // 'list' or 'grouped'
+  const[newRule,setNewRule]=useState({document_type:'',category:'',source:'',condition_field:'destination',condition_value:'',signature_required:false});
+  const ur=(k,v)=>setNewRule(p=>({...p,[k]:v}));
+
+  useEffect(()=>{
+    sb.from('doc_rules').select('*').order('condition_field').then(({data})=>{setRules(data||[]);setLoading(false);});
+  },[]);
+
+  async function saveRule(){
+    if(!newRule.document_type.trim()||!newRule.condition_value.trim())return;
+    const{data,error}=await sb.from('doc_rules').insert({...newRule,document_type:newRule.document_type.trim(),category:newRule.category.trim()||'General',source:newRule.source.trim(),condition_value:newRule.condition_value.trim()}).select().single();
+    if(error){alert('Failed: '+error.message);return;}
+    setRules(p=>[...p,data]);
+    setNewRule({document_type:'',category:'',source:'',condition_field:'destination',condition_value:''});
+    setAddingRule(false);
+    showToast&&showToast('Rule added');
+  }
+
+  async function deleteRule(id){
+    await sb.from('doc_rules').delete().eq('id',id);
+    setRules(p=>p.filter(r=>r.id!==id));
+    showToast&&showToast('Rule deleted');
+  }
+
+  async function toggleSigReq(id,current){
+    const val=!current;
+    await sb.from('doc_rules').update({signature_required:val}).eq('id',id);
+    setRules(p=>p.map(r=>r.id===id?{...r,signature_required:val}:r));
+  }
+
+  const destRules=rules.filter(r=>r.condition_field==='destination');
+  const incRules=rules.filter(r=>r.condition_field==='incoterms');
+
+  function renderAddForm(){
+    return addingRule&&(
+      <div style={{padding:'12px 16px',background:'#f8fafc',borderBottom:'1px solid #e2e8f0',display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}}>
+        <div style={{display:'flex',flexDirection:'column',gap:3}}>
+          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Condition</label>
+          <select value={newRule.condition_field} onChange={e=>ur('condition_field',e.target.value)} style={{fontSize:12,flex:'0 0 120px',width:120}}>
+            <option value="destination">Destination</option>
+            <option value="incoterms">Incoterms</option>
+          </select>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:3}}>
+          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Country</label>
+          <input value={newRule.condition_value} onChange={e=>ur('condition_value',e.target.value)} placeholder={newRule.condition_field==='destination'?'e.g. Turkey':'e.g. DDP'} style={{fontSize:12,width:120}}/>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:3,flex:1}}>
+          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Document type</label>
+          <input value={newRule.document_type} onChange={e=>ur('document_type',e.target.value)} placeholder="e.g. ATR Certificate" style={{fontSize:12}}/>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:3}}>
+          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Category</label>
+          <input value={newRule.category} onChange={e=>ur('category',e.target.value)} placeholder="e.g. Customs docs" style={{fontSize:12,width:130}}/>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:3}}>
+          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Source</label>
+          <input value={newRule.source} onChange={e=>ur('source',e.target.value)} placeholder="e.g. Dutch Customs" style={{fontSize:12,width:130}}/>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:3,justifyContent:'flex-end'}}>
+          <label style={{display:'flex',alignItems:'center',gap:4,fontSize:12,color:'#64748b',cursor:'pointer',whiteSpace:'nowrap',paddingBottom:6}}>
+            <input type="checkbox" checked={newRule.signature_required} onChange={e=>ur('signature_required',e.target.checked)} style={{width:'auto'}}/>Sig. req.
+          </label>
+        </div>
+        <button onClick={saveRule} disabled={!newRule.document_type||!newRule.condition_value} className="dt-btn-primary" style={{fontSize:12,padding:'6px 14px',alignSelf:'flex-end'}}>Add</button>
+      </div>
+    );
+  }
+
+  function renderListView(){
+    if(loading)return <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading…</div>;
+    if(rules.length===0&&!addingRule)return <div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No rules yet. Add rules to auto-include documents based on destination country or incoterms.</div>;
+    const byField={'destination':destRules,'incoterms':incRules};
+    return Object.entries(byField).filter(([,rs])=>rs.length>0).map(([field,rs])=>(
+      <div key={field}>
+        <div style={{padding:'7px 16px',background:'#f8fafc',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontSize:11,fontWeight:600,color:'#475569',letterSpacing:'.05em',textTransform:'uppercase'}}>{field==='destination'?'By destination country':'By incoterms'}</span>
+          <span style={{fontSize:11,color:'#94a3b8'}}>{rs.length} rule{rs.length!==1?'s':''}</span>
+        </div>
+        <table className="dt-table">
+          <thead><tr>
+            <th className="dt-th">Country</th>
+            <th className="dt-th">Document type</th>
+            <th className="dt-th">Category</th>
+            <th className="dt-th">Source</th>
+            <th className="dt-th">Sig. req.</th>
+            <th className="dt-th"/>
+          </tr></thead>
+          <tbody>
+            {rs.map((r,i)=>(
+              <tr key={r.id} className={i===rs.length-1?'dt-tr-last':''}>
+                <td className="dt-td"><span className="dt-badge" style={{background:'#f1f5f9',color:'#475569',fontSize:11}}>{r.condition_value}</span></td>
+                <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
+                <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.category||'—'}</td>
+                <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.source||'—'}</td>
+                <td className="dt-td" style={{cursor:'pointer'}} onClick={()=>toggleSigReq(r.id,r.signature_required)} title="Click to toggle">{r.signature_required?<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Yes</span>:<span style={{color:'#94a3b8',fontSize:12}}>No</span>}</td>
+                <td className="dt-td" style={{textAlign:'right'}}>
+                  <button onClick={()=>deleteRule(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}>
+                    <i className="ti ti-trash" style={{fontSize:14}}/>
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ));
+  }
+
+  function renderGroupedView(){
+    if(loading)return <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading…</div>;
+    if(destRules.length===0)return <div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No destination country rules yet.</div>;
+    const byCountry={};
+    destRules.forEach(r=>{
+      const c=r.condition_value;
+      if(!byCountry[c])byCountry[c]=[];
+      byCountry[c].push(r);
+    });
+    const sorted=Object.keys(byCountry).sort();
+    return sorted.map(country=>{
+      const docs=byCountry[country];
+      return(
+        <div key={country} className="dt-card" style={{marginBottom:12}}>
+          <div style={{padding:'11px 16px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:10}}>
+            <i className="ti ti-map-pin" style={{fontSize:14,color:'#64748b'}}/>
+            <span style={{fontWeight:500,fontSize:14,color:'#0f172a'}}>{country}</span>
+            <span style={{fontSize:12,color:'#94a3b8',marginLeft:4}}>{docs.length} document{docs.length!==1?'s':''} required</span>
+          </div>
+          <table className="dt-table">
+            <thead><tr>
+              <th className="dt-th">Document type</th>
+              <th className="dt-th">Category</th>
+              <th className="dt-th">Source</th>
+              <th className="dt-th">Sig. req.</th>
+              <th className="dt-th"/>
+            </tr></thead>
+            <tbody>
+              {docs.map((r,i)=>(
+                <tr key={r.id} className={i===docs.length-1?'dt-tr-last':''}>
+                  <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
+                  <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.category||'—'}</td>
+                  <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.source||'—'}</td>
+                  <td className="dt-td" style={{cursor:'pointer'}} onClick={()=>toggleSigReq(r.id,r.signature_required)} title="Click to toggle">{r.signature_required?<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Yes</span>:<span style={{color:'#94a3b8',fontSize:12}}>No</span>}</td>
+                  <td className="dt-td" style={{textAlign:'right'}}>
+                    <button onClick={()=>deleteRule(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}>
+                      <i className="ti ti-trash" style={{fontSize:14}}/>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    });
+  }
+
+  return(
+    <div>
+      <div className="dt-card" style={{marginBottom:16}}>
         <div className="dt-section-hdr">
-          Conditional document rules
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            Country document rules
+            <div style={{display:'flex',gap:4,background:'#f1f5f9',borderRadius:6,padding:2}}>
+              <button onClick={()=>setViewMode('list')} style={{fontSize:11,padding:'3px 10px',borderRadius:4,border:'none',background:viewMode==='list'?'#fff':'transparent',color:viewMode==='list'?'#0f172a':'#64748b',fontWeight:viewMode==='list'?500:400,boxShadow:viewMode==='list'?'0 1px 3px rgba(0,0,0,.08)':'none',cursor:'pointer'}}>List view</button>
+              <button onClick={()=>setViewMode('grouped')} style={{fontSize:11,padding:'3px 10px',borderRadius:4,border:'none',background:viewMode==='grouped'?'#fff':'transparent',color:viewMode==='grouped'?'#0f172a':'#64748b',fontWeight:viewMode==='grouped'?500:400,boxShadow:viewMode==='grouped'?'0 1px 3px rgba(0,0,0,.08)':'none',cursor:'pointer'}}>By country</button>
+            </div>
+          </div>
           <button onClick={()=>setAddingRule(p=>!p)} style={{fontSize:12,display:'flex',alignItems:'center',gap:4,color:'#2563eb',background:'none',border:'none',cursor:'pointer',padding:0,fontFamily:"'DM Sans',sans-serif"}}>
             <i className={`ti ${addingRule?'ti-x':'ti-plus'}`}/>{addingRule?'Cancel':'Add rule'}
           </button>
         </div>
-        {addingRule&&(
-          <div style={{padding:'12px 16px',background:'#f8fafc',borderBottom:'1px solid #e2e8f0',display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}}>
-            <div style={{display:'flex',flexDirection:'column',gap:3}}>
-              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Condition</label>
-              <select value={newRule.condition_field} onChange={e=>ur('condition_field',e.target.value)} style={{fontSize:12,flex:'0 0 120px',width:120}}>
-                <option value="destination">Destination</option>
-                <option value="incoterms">Incoterms</option>
-              </select>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:3}}>
-              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Value</label>
-              <input value={newRule.condition_value} onChange={e=>ur('condition_value',e.target.value)} placeholder={newRule.condition_field==='destination'?'e.g. Turkey':'e.g. DDP'} style={{fontSize:12,width:110}}/>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:3,flex:1}}>
-              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Document type</label>
-              <input value={newRule.document_type} onChange={e=>ur('document_type',e.target.value)} placeholder="e.g. ATR Certificate" style={{fontSize:12}}/>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:3}}>
-              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Category</label>
-              <input value={newRule.category} onChange={e=>ur('category',e.target.value)} placeholder="e.g. Customs docs" style={{fontSize:12,width:130}}/>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:3}}>
-              <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Source</label>
-              <input value={newRule.source} onChange={e=>ur('source',e.target.value)} placeholder="e.g. Dutch Customs" style={{fontSize:12,width:130}}/>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:3,justifyContent:'flex-end'}}>
-              <label style={{display:'flex',alignItems:'center',gap:4,fontSize:12,color:'#64748b',cursor:'pointer',whiteSpace:'nowrap',paddingBottom:6}}>
-                <input type="checkbox" checked={newRule.signature_required} onChange={e=>ur('signature_required',e.target.checked)} style={{width:'auto'}}/>Sig. req.
-              </label>
-            </div>
-            <button onClick={saveRule} disabled={!newRule.document_type||!newRule.condition_value} className="dt-btn-primary" style={{fontSize:12,padding:'6px 14px',alignSelf:'flex-end'}}>Add</button>
-          </div>
-        )}
-        {rulesLoading
-          ?<div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading rules…</div>
-          :rules.length===0&&!addingRule
-            ?<div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No conditional rules yet. Add rules to auto-include documents based on destination or incoterms.</div>
-            :(()=>{
-              const byField={'destination':rules.filter(r=>r.condition_field==='destination'),'incoterms':rules.filter(r=>r.condition_field==='incoterms')};
-              return Object.entries(byField).filter(([,rs])=>rs.length>0).map(([field,rs])=>(
-                <div key={field}>
-                  <div style={{padding:'7px 16px',background:'#f8fafc',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:8}}>
-                    <span style={{fontSize:11,fontWeight:600,color:'#475569',letterSpacing:'.05em',textTransform:'uppercase'}}>{field==='destination'?'By destination':'By incoterms'}</span>
-                    <span style={{fontSize:11,color:'#94a3b8'}}>{rs.length} rule{rs.length!==1?'s':''}</span>
-                  </div>
-                  <table className="dt-table">
-                    <thead><tr>
-                      <th className="dt-th">Condition value</th>
-                      <th className="dt-th">Document type</th>
-                      <th className="dt-th">Category</th>
-                      <th className="dt-th">Source</th>
-                      <th className="dt-th">Sig. req.</th>
-                      <th className="dt-th"/>
-                    </tr></thead>
-                    <tbody>
-                      {rs.map((r,i)=>(
-                        <tr key={r.id} className={i===rs.length-1?'dt-tr-last':''}>
-                          <td className="dt-td"><span className="dt-badge" style={{background:'#f1f5f9',color:'#475569',fontSize:11}}>{r.condition_value}</span></td>
-                          <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
-                          <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.category||'—'}</td>
-                          <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.source||'—'}</td>
-                          <td className="dt-td" style={{cursor:'pointer'}} onClick={()=>toggleSigReq(r.id,r.signature_required)} title="Click to toggle">{r.signature_required?<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Yes</span>:<span style={{color:'#94a3b8',fontSize:12}}>No</span>}</td>
-                          <td className="dt-td" style={{textAlign:'right'}}>
-                            <button onClick={()=>deleteRule(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}>
-                              <i className="ti ti-trash" style={{fontSize:14}}/>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ));
-            })()
-        }
+        {renderAddForm()}
+        {viewMode==='list'?renderListView():renderGroupedView()}
       </div>
     </div>
   );
@@ -2831,7 +2903,7 @@ function App(){
   if(sessionLoading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
   if(!user) return <Login users={users} onLogin={login}/>;
 
-  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types",integrations:"Integrations","kvk-search":"KVK Company Search","signature-rules":"Signature rules","customer-doc-rules":"Customer doc rules","customer-portals":"Customer portals"};
+  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","country-doc-needs":"Country doc needs",integrations:"Integrations","kvk-search":"KVK Company Search","signature-rules":"Signature rules","customer-doc-rules":"Customer doc rules","customer-portals":"Customer portals"};
 
   return(
     <div className="dt-app">
@@ -2859,6 +2931,7 @@ function App(){
           {view==="kvk-search"&&<KVKSearch/>}
           {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
           {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}}/>}
+          {view==="country-doc-needs"&&canAdmin(user.role)&&<CountryDocNeedsView showToast={showToast}/>}
           {view==="signature-rules"&&canAdmin(user.role)&&<SignatureRulesView showToast={showToast}/>}
           {view==="customer-doc-rules"&&canAdmin(user.role)&&<CustomerDocRulesView showToast={showToast}/>}
           {view==="customer-portals"&&canAdmin(user.role)&&<CustomerPortalsView currentUser={user} showToast={showToast}/>}
