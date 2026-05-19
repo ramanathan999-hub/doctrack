@@ -255,6 +255,20 @@ async function getConditionalDocs(dest,incoterms){
     .map(r=>({docType:r.document_type,category:r.category,source:r.source||'',signatureRequired:!!r.signature_required}));
 }
 
+/* ── ISO 6346 container number validation ── */
+function validateISO6346(raw){
+  const s=(raw||'').toUpperCase().replace(/[\s\-]/g,'');
+  if(!/^[A-Z]{4}\d{7}$/.test(s))return{valid:false,msg:'Format must be AAAU 000000 0'};
+  const letters='0ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const vals=Array.from({length:26},(_,i)=>{const v=i+10+Math.floor((i+10)/11);return v;});
+  const charVal=c=>{if(/\d/.test(c))return parseInt(c);const i=letters.indexOf(c);return i>=0?vals[i-1]:0;};
+  const sum=Array.from(s.slice(0,10)).reduce((acc,c,i)=>acc+charVal(c)*Math.pow(2,i),0);
+  const check=sum%11===10?0:sum%11;
+  return parseInt(s[10])===check
+    ?{valid:true,msg:'Valid ISO 6346'}
+    :{valid:false,msg:`Check digit should be ${check}`};
+}
+
 /* ── Config ── */
 const DOC_BADGE={
   Pending:{bg:"#f1f5f9",color:"#64748b"},
@@ -857,6 +871,9 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[savingEvent,setSavingEvent]=useState(false);
   const[sigModal,setSigModal]=useState(null);
   const[sigSentModal,setSigSentModal]=useState(null);
+  const[containerInput,setContainerInput]=useState('');
+  const[editingContainer,setEditingContainer]=useState(false);
+  const[savingContainer,setSavingContainer]=useState(false);
 
   useEffect(()=>{load();},[orderId]);
 
@@ -870,6 +887,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
         sb.from('shipment_events').select('*').eq('order_number',orderId).order('event_date',{ascending:true})
       ]);
       setOrder(sbOrder);setItems(sbItems||[]);setActivity(sbAct||[]);setShipmentEvents(sbEvs||[]);setIsSeed(false);
+      setContainerInput(sbOrder.container_numbers||'');
     } else {
       const seed=SEED_ORDERS.find(o=>o.id===orderId);
       if(seed){
@@ -960,6 +978,16 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     window.open(data.signedUrl,'_blank');
   }
 
+  async function downloadDoc(item){
+    const folder=(item.category||'').trim().replace(/ /g,'_');
+    const docName=(item.document_type||item.doc_type||'').trim().replace(/ /g,'_');
+    const fileName=`${docName}_${order.order_number}.pdf`;
+    const storagePath=`${order.order_number}/${folder}/${fileName}`;
+    const{data,error}=await sb.storage.from('documents').createSignedUrl(storagePath,60,{download:fileName});
+    if(error||!data?.signedUrl){showToast('Document not available in storage',false);return;}
+    const a=document.createElement('a');a.href=data.signedUrl;a.download=fileName;a.click();
+  }
+
   async function updateOrderStatus(newStatus){
     if(!isSeed){
       const{error}=await sb.from('orders').update({status:newStatus,ready_to_ship:newStatus==="Complete"}).eq('order_number',order.order_number);
@@ -968,6 +996,15 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     await logActivity('order_status',{from:order.status,to:newStatus});
     setOrder(p=>({...p,status:newStatus,ready_to_ship:newStatus==="Complete"}));
     showToast('Order status updated');
+  }
+
+  async function saveContainer(){
+    if(isSeed){showToast('Not available for demo orders',false);setEditingContainer(false);return;}
+    setSavingContainer(true);
+    const{error}=await sb.from('orders').update({container_numbers:containerInput.trim()||null}).eq('order_number',order.order_number);
+    if(error){showToast('Failed to save container number',false);}
+    else{setOrder(p=>({...p,container_numbers:containerInput.trim()||null}));showToast('Container number saved');}
+    setSavingContainer(false);setEditingContainer(false);
   }
 
   async function openSigModal(item){
@@ -1069,6 +1106,38 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
               {order.created_at&&<span><i className="ti ti-calendar"/>Created {String(order.created_at).slice(0,10)}</span>}
               {order.due_date&&<span><i className="ti ti-clock"/>Due {order.due_date}</span>}
             </div>
+            {!ro&&!isSeed&&(
+              <div style={{marginTop:10,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <i className="ti ti-container" style={{fontSize:14,color:"#64748b"}}/>
+                {editingContainer?(
+                  <>
+                    <input
+                      value={containerInput}
+                      onChange={e=>setContainerInput(e.target.value.toUpperCase())}
+                      placeholder="e.g. MSCU 123456 7"
+                      style={{fontSize:12,padding:"3px 8px",width:160,fontFamily:"'JetBrains Mono',monospace",letterSpacing:".05em"}}
+                      onKeyDown={e=>{if(e.key==='Enter')saveContainer();if(e.key==='Escape')setEditingContainer(false);}}
+                      autoFocus
+                    />
+                    {(()=>{const v=validateISO6346(containerInput);return containerInput.length>3&&(
+                      <span style={{fontSize:11,display:"flex",alignItems:"center",gap:3,color:v.valid?"#15803d":"#dc2626"}}>
+                        <i className={`ti ${v.valid?"ti-circle-check":"ti-alert-triangle"}`} style={{fontSize:12}}/>
+                        {v.msg}
+                      </span>
+                    );})()}
+                    <button onClick={saveContainer} disabled={savingContainer} className="dt-btn-primary" style={{fontSize:11,padding:"3px 10px"}}>{savingContainer?"Saving…":"Save"}</button>
+                    <button onClick={()=>{setContainerInput(order.container_numbers||'');setEditingContainer(false);}} style={{fontSize:11,padding:"3px 8px"}}>Cancel</button>
+                  </>
+                ):(
+                  <span onClick={()=>setEditingContainer(true)} style={{fontSize:12,color:order.container_numbers?"#0f172a":"#94a3b8",cursor:"pointer",display:"flex",alignItems:"center",gap:5,fontFamily:order.container_numbers?"'JetBrains Mono',monospace":"inherit"}}>
+                    {order.container_numbers
+                      ?<>{order.container_numbers}{(()=>{const v=validateISO6346(order.container_numbers);return<i className={`ti ${v.valid?"ti-circle-check":"ti-alert-triangle"}`} style={{fontSize:12,color:v.valid?"#15803d":"#dc2626"}}/>;})()}</>
+                      :<><i className="ti ti-plus" style={{fontSize:11}}/>Add container number</>
+                    }
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div style={{textAlign:"right",flexShrink:0}}>
             <div style={{fontSize:11,color:"#64748b",marginBottom:3}}>Required docs complete</div>
@@ -1145,7 +1214,10 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                     <td className="dt-td">
                       <div style={{display:"flex",alignItems:"center",gap:2}}>
                         <button onClick={()=>openDoc(item)} title="Open document" style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",display:"flex",alignItems:"center",fontSize:12}}>
-                          <i className="ti ti-file-download" style={{fontSize:16,color:"#2563eb"}}/>
+                          <i className="ti ti-eye" style={{fontSize:16,color:"#2563eb"}}/>
+                        </button>
+                        <button onClick={()=>downloadDoc(item)} title="Download PDF" style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",display:"flex",alignItems:"center",fontSize:12}}>
+                          <i className="ti ti-file-download" style={{fontSize:16,color:"#7c3aed"}}/>
                         </button>
                         {!ro&&!isSeed&&(
                           <button onClick={()=>triggerUpload(item)} title="Upload PDF" disabled={uploading===item.id} style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",display:"flex",alignItems:"center",fontSize:12,opacity:uploading===item.id?.5:1}}>
@@ -2344,6 +2416,25 @@ function App(){
   const login=(u)=>{setUser(u);setView("dashboard");};
   const logout=()=>{sb.auth.signOut();setUser(null);setView("login");setOrderId(null);};
 
+  /* ── Session timeout: 30 min inactivity ── */
+  const[timeoutWarning,setTimeoutWarning]=useState(false);
+  const idleTimer=useRef(null);
+  const warnTimer=useRef(null);
+  useEffect(()=>{
+    if(!user)return;
+    const WARN=28*60*1000, LIMIT=30*60*1000;
+    const reset=()=>{
+      setTimeoutWarning(false);
+      clearTimeout(idleTimer.current);clearTimeout(warnTimer.current);
+      warnTimer.current=setTimeout(()=>setTimeoutWarning(true),WARN);
+      idleTimer.current=setTimeout(()=>logout(),LIMIT);
+    };
+    const events=['mousemove','mousedown','keydown','touchstart','scroll'];
+    events.forEach(e=>window.addEventListener(e,reset,{passive:true}));
+    reset();
+    return()=>{events.forEach(e=>window.removeEventListener(e,reset));clearTimeout(idleTimer.current);clearTimeout(warnTimer.current);};
+  },[user]);
+
   if(CUSTOMER_TOKEN) return <CustomerPortalView token={CUSTOMER_TOKEN}/>;
   if(SHARE_TOKEN) return <SharedView token={SHARE_TOKEN}/>;
   if(sessionLoading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
@@ -2420,6 +2511,13 @@ function App(){
       {modal==="type"&&<CreateTypeModal onClose={()=>setModal(null)} onCreate={f=>{setOrderTypes(p=>[...p,{...f,id:`ot${p.length+1}`,docs:[]}]);setModal(null);showToast("Order type created");}}/>}
 
       <Toast toast={toast}/>
+      {timeoutWarning&&(
+        <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",zIndex:300,background:"#1e3a5f",color:"#fff",borderRadius:10,padding:"12px 20px",fontSize:13,display:"flex",alignItems:"center",gap:12,boxShadow:"0 4px 24px rgba(0,0,0,.25)"}}>
+          <i className="ti ti-clock-exclamation" style={{fontSize:18,color:"#fbbf24"}}/>
+          <span>You'll be signed out in 2 minutes due to inactivity.</span>
+          <button onClick={()=>setTimeoutWarning(false)} style={{background:"#fff",color:"#1e3a5f",border:"none",borderRadius:6,padding:"4px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Stay signed in</button>
+        </div>
+      )}
     </div>
   );
 }
