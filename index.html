@@ -2151,11 +2151,20 @@ function CustomerDocRulesView({showToast}){
   const[adding,setAdding]=useState(false);
   const blank={customer_name:'',destination_country:'',document_type:'',copies_required:1,condition_type:'Always'};
   const[newRule,setNewRule]=useState(blank);
+  const[customers,setCustomers]=useState([]);
   const ur=(k,v)=>setNewRule(p=>({...p,[k]:v}));
   const DOC_TYPES=['Invoice','Proforma Invoice','Predated Invoice','Packing List','Certificate of Analysis','BL','SWB','Certificate of Origin','SGS Inspection Report','IPPC and ISPM15','Insurance','Shipment Advice','Beneficiary Certificate','ATR','UIT Export Declaration','Bank Draft','Cover Letter','Manufacturer Declaration'];
 
   useEffect(()=>{
-    sb.from('customer_doc_rules').select('*').order('created_at',{ascending:false}).then(({data})=>{setRules(data||[]);setLoading(false);});
+    Promise.all([
+      sb.from('customer_doc_rules').select('*').order('created_at',{ascending:false}),
+      sb.from('orders').select('customer_name').order('customer_name')
+    ]).then(([{data:ruleData},{data:custData}])=>{
+      setRules(ruleData||[]);
+      const unique=[...new Set((custData||[]).map(o=>o.customer_name).filter(Boolean))].sort();
+      setCustomers(unique);
+      setLoading(false);
+    });
   },[]);
 
   async function addRule(){
@@ -2186,7 +2195,10 @@ function CustomerDocRulesView({showToast}){
         <div style={{padding:"14px 16px",background:"#fafafe",borderBottom:"1px solid #e2e8f0",display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
             <label style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em"}}>CUSTOMER (blank = all)</label>
-            <input value={newRule.customer_name} onChange={e=>ur('customer_name',e.target.value)} placeholder="e.g. Michelin Reifenwerke…" style={{fontSize:12,padding:"5px 8px",width:200}}/>
+            <select value={newRule.customer_name} onChange={e=>ur('customer_name',e.target.value)} style={{fontSize:12,padding:"5px 8px",width:220}}>
+              <option value="">All customers</option>
+              {customers.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
             <label style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em"}}>DESTINATION (blank = all)</label>
