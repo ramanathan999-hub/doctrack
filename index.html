@@ -156,7 +156,7 @@ button:hover{background:#f8fafc}
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script type="text/babel">
-const {useState,useEffect,useRef}=React;
+const {useState,useEffect,useRef,useMemo}=React;
 const SHARE_TOKEN=new URLSearchParams(location.search).get('share');
 const CUSTOMER_TOKEN=new URLSearchParams(location.search).get('customer');
 const sb=window.supabase.createClient('https://syorwcsahfxbemvwdxrz.supabase.co','sb_publishable_S6_L3SlyflJLJ85IbCPwFA_G6ZKA8e_');
@@ -1692,141 +1692,148 @@ function TypesView({orderTypes,onAddDoc}){
 function CountryDocNeedsView({showToast}){
   const[rules,setRules]=useState([]);
   const[loading,setLoading]=useState(true);
-  const[addingRule,setAddingRule]=useState(false);
-  const[viewMode,setViewMode]=useState('list'); // 'list' or 'grouped'
-  const[newRule,setNewRule]=useState({document_type:'',category:'',source:'',condition_field:'destination',condition_value:'',signature_required:false});
-  const ur=(k,v)=>setNewRule(p=>({...p,[k]:v}));
+  const[viewMode,setViewMode]=useState('grid');
+  const[addModal,setAddModal]=useState(false);
+  const[dupCount,setDupCount]=useState(0);
+  const[newEntry,setNewEntry]=useState({country:'',document_type:'',category:'General',source:''});
+  const[newBase,setNewBase]=useState({document_type:'',category:'General',source:''});
 
   useEffect(()=>{
-    sb.from('doc_rules').select('*').order('condition_field').then(({data})=>{setRules(data||[]);setLoading(false);});
+    sb.from('doc_rules').select('*').order('condition_value').then(({data})=>{
+      const all=data||[];
+      const seen=new Set(); let dups=0;
+      const deduped=all.filter(r=>{
+        const k=`${r.condition_field}|${(r.condition_value||'').toLowerCase()}|${r.document_type.toLowerCase()}`;
+        if(seen.has(k)){dups++;return false;} seen.add(k);return true;
+      });
+      setDupCount(dups); setRules(deduped); setLoading(false);
+    });
   },[]);
 
-  async function saveRule(){
-    if(!newRule.document_type.trim()||!newRule.condition_value.trim())return;
-    const{data,error}=await sb.from('doc_rules').insert({...newRule,document_type:newRule.document_type.trim(),category:newRule.category.trim()||'General',source:newRule.source.trim(),condition_value:newRule.condition_value.trim()}).select().single();
-    if(error){alert('Failed: '+error.message);return;}
-    setRules(p=>[...p,data]);
-    setNewRule({document_type:'',category:'',source:'',condition_field:'destination',condition_value:''});
-    setAddingRule(false);
-    showToast&&showToast('Rule added');
+  async function cleanupDups(){
+    const{data}=await sb.from('doc_rules').select('*').order('id');
+    const seen=new Set(); const ids=[];
+    (data||[]).forEach(r=>{
+      const k=`${r.condition_field}|${(r.condition_value||'').toLowerCase()}|${r.document_type.toLowerCase()}`;
+      if(seen.has(k))ids.push(r.id); else seen.add(k);
+    });
+    if(!ids.length){showToast('No duplicates found');return;}
+    await sb.from('doc_rules').delete().in('id',ids);
+    const{data:fresh}=await sb.from('doc_rules').select('*').order('condition_value');
+    setRules(fresh||[]); setDupCount(0);
+    showToast(`Removed ${ids.length} duplicate${ids.length!==1?'s':''}`);
   }
 
-  async function deleteRule(id){
+  async function addBaseDoc(){
+    if(!newBase.document_type.trim())return;
+    const dup=rules.some(r=>r.condition_field==='base'&&r.document_type.toLowerCase()===newBase.document_type.toLowerCase());
+    if(dup){showToast('Already in standard list');return;}
+    const{data,error}=await sb.from('doc_rules').insert({condition_field:'base',condition_value:'ALL',document_type:newBase.document_type.trim(),category:newBase.category||'General',source:newBase.source||'',signature_required:false}).select().single();
+    if(error){alert('Failed: '+error.message);return;}
+    setRules(p=>[...p,data]); setNewBase({document_type:'',category:'General',source:''});
+    showToast('Standard document added');
+  }
+
+  async function removeDoc(id){
     await sb.from('doc_rules').delete().eq('id',id);
     setRules(p=>p.filter(r=>r.id!==id));
-    showToast&&showToast('Rule deleted');
+    showToast('Removed');
   }
 
-  async function toggleSigReq(id,current){
-    const val=!current;
-    await sb.from('doc_rules').update({signature_required:val}).eq('id',id);
-    setRules(p=>p.map(r=>r.id===id?{...r,signature_required:val}:r));
+  async function addDestRule(){
+    const{country,document_type,category,source}=newEntry;
+    if(!country.trim()||!document_type.trim())return;
+    const dup=destRules.some(r=>r.condition_value.toLowerCase()===country.toLowerCase()&&r.document_type.toLowerCase()===document_type.toLowerCase());
+    if(dup){showToast('Already exists');setAddModal(false);return;}
+    const{data,error}=await sb.from('doc_rules').insert({condition_field:'destination',condition_value:country.trim(),document_type:document_type.trim(),category:category||'General',source:source||'',signature_required:false}).select().single();
+    if(error){alert('Failed: '+error.message);return;}
+    setRules(p=>[...p,data]); setNewEntry({country:'',document_type:'',category:'General',source:''});
+    setAddModal(false); showToast('Rule added');
   }
 
+  async function toggleCell(country,docType){
+    const existing=destRules.find(r=>r.condition_value===country&&r.document_type===docType);
+    if(existing){
+      await sb.from('doc_rules').delete().eq('id',existing.id);
+      setRules(p=>p.filter(r=>r.id!==existing.id));
+    }else{
+      const{data,error}=await sb.from('doc_rules').insert({condition_field:'destination',condition_value:country,document_type:docType,category:'General',source:'',signature_required:false}).select().single();
+      if(!error)setRules(p=>[...p,data]);
+    }
+  }
+
+  const baseDocs=rules.filter(r=>r.condition_field==='base');
   const destRules=rules.filter(r=>r.condition_field==='destination');
-  const incRules=rules.filter(r=>r.condition_field==='incoterms');
+  const allDocTypes=useMemo(()=>[...new Set(destRules.map(r=>r.document_type))].sort(),[destRules]);
+  const allCountries=useMemo(()=>[...new Set(destRules.map(r=>r.condition_value))].sort(),[destRules]);
+  const ruleMap=useMemo(()=>{const m={};destRules.forEach(r=>{m[`${r.condition_value}|${r.document_type}`]=r;});return m;},[destRules]);
 
-  function renderAddForm(){
-    return addingRule&&(
-      <div style={{padding:'12px 16px',background:'#f8fafc',borderBottom:'1px solid #e2e8f0',display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}}>
-        <div style={{display:'flex',flexDirection:'column',gap:3}}>
-          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Condition</label>
-          <select value={newRule.condition_field} onChange={e=>ur('condition_field',e.target.value)} style={{fontSize:12,flex:'0 0 120px',width:120}}>
-            <option value="destination">Destination</option>
-            <option value="incoterms">Incoterms</option>
-          </select>
-        </div>
-        <div style={{display:'flex',flexDirection:'column',gap:3}}>
-          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Country</label>
-          <input value={newRule.condition_value} onChange={e=>ur('condition_value',e.target.value)} placeholder={newRule.condition_field==='destination'?'e.g. Turkey':'e.g. DDP'} style={{fontSize:12,width:120}}/>
-        </div>
-        <div style={{display:'flex',flexDirection:'column',gap:3,flex:1}}>
-          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Document type</label>
-          <input value={newRule.document_type} onChange={e=>ur('document_type',e.target.value)} placeholder="e.g. ATR Certificate" style={{fontSize:12}}/>
-        </div>
-        <div style={{display:'flex',flexDirection:'column',gap:3}}>
-          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Category</label>
-          <input value={newRule.category} onChange={e=>ur('category',e.target.value)} placeholder="e.g. Customs docs" style={{fontSize:12,width:130}}/>
-        </div>
-        <div style={{display:'flex',flexDirection:'column',gap:3}}>
-          <label style={{fontSize:10,color:'#94a3b8',letterSpacing:'.05em',textTransform:'uppercase'}}>Source</label>
-          <input value={newRule.source} onChange={e=>ur('source',e.target.value)} placeholder="e.g. Dutch Customs" style={{fontSize:12,width:130}}/>
-        </div>
-        <div style={{display:'flex',flexDirection:'column',gap:3,justifyContent:'flex-end'}}>
-          <label style={{display:'flex',alignItems:'center',gap:4,fontSize:12,color:'#64748b',cursor:'pointer',whiteSpace:'nowrap',paddingBottom:6}}>
-            <input type="checkbox" checked={newRule.signature_required} onChange={e=>ur('signature_required',e.target.checked)} style={{width:'auto'}}/>Sig. req.
-          </label>
-        </div>
-        <button onClick={saveRule} disabled={!newRule.document_type||!newRule.condition_value} className="dt-btn-primary" style={{fontSize:12,padding:'6px 14px',alignSelf:'flex-end'}}>Add</button>
+  function renderGrid(){
+    if(loading)return <div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading…</div>;
+    if(allCountries.length===0)return <div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No country rules yet. Use "Add rule" to create the first one.</div>;
+    return(
+      <div style={{overflowX:'auto',overflowY:'visible'}}>
+        <table style={{borderCollapse:'collapse',minWidth:'max-content',tableLayout:'fixed'}}>
+          <thead>
+            <tr>
+              <th style={{position:'sticky',left:0,background:'#fff',zIndex:3,minWidth:130,width:130,padding:'8px 13px',borderBottom:'1px solid #e2e8f0',borderRight:'2px solid #e2e8f0',fontSize:11,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:500,textAlign:'left',verticalAlign:'bottom'}}>Country</th>
+              {allDocTypes.map(dt=>(
+                <th key={dt} style={{width:44,minWidth:44,padding:'4px 2px',borderBottom:'1px solid #e2e8f0',verticalAlign:'bottom',textAlign:'center'}}>
+                  <div style={{writingMode:'vertical-rl',transform:'rotate(180deg)',height:90,display:'flex',alignItems:'center',justifyContent:'flex-start',fontSize:11,color:'#475569',fontWeight:500,lineHeight:1.2,overflow:'hidden',paddingLeft:2}} title={dt}>{dt}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {allCountries.map((country,ci)=>{
+              const rowCount=destRules.filter(r=>r.condition_value===country).length;
+              return(
+                <tr key={country} style={{background:ci%2===0?'#fff':'#fafafa'}}>
+                  <td style={{position:'sticky',left:0,background:ci%2===0?'#fff':'#fafafa',zIndex:2,fontWeight:500,fontSize:13,color:'#0f172a',padding:'9px 13px',borderBottom:'1px solid #f1f5f9',borderRight:'2px solid #e2e8f0',whiteSpace:'nowrap'}}>
+                    {country}
+                    <span style={{marginLeft:6,fontSize:10,color:'#94a3b8',fontWeight:400}}>{rowCount}</span>
+                  </td>
+                  {allDocTypes.map(dt=>{
+                    const has=!!ruleMap[`${country}|${dt}`];
+                    return(
+                      <td key={dt} onClick={()=>toggleCell(country,dt)} style={{textAlign:'center',cursor:'pointer',padding:'9px 2px',borderBottom:'1px solid #f1f5f9',transition:'background .08s',userSelect:'none'}}
+                        onMouseEnter={e=>{e.currentTarget.style.background='#f0f9ff';}}
+                        onMouseLeave={e=>{e.currentTarget.style.background='';}}
+                        title={`${country} — ${dt}`}>
+                        {has
+                          ?<i className="ti ti-check" style={{fontSize:14,color:'#16a34a'}}/>
+                          :<span style={{fontSize:16,color:'#e2e8f0',lineHeight:1}}>·</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     );
   }
 
-  function renderListView(){
-    if(loading)return <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading…</div>;
-    if(rules.length===0&&!addingRule)return <div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No rules yet. Add rules to auto-include documents based on destination country or incoterms.</div>;
-    const byField={'destination':destRules,'incoterms':incRules};
-    return Object.entries(byField).filter(([,rs])=>rs.length>0).map(([field,rs])=>(
-      <div key={field}>
-        <div style={{padding:'7px 16px',background:'#f8fafc',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:8}}>
-          <span style={{fontSize:11,fontWeight:600,color:'#475569',letterSpacing:'.05em',textTransform:'uppercase'}}>{field==='destination'?'By destination country':'By incoterms'}</span>
-          <span style={{fontSize:11,color:'#94a3b8'}}>{rs.length} rule{rs.length!==1?'s':''}</span>
-        </div>
-        <table className="dt-table">
-          <thead><tr>
-            <th className="dt-th">Country</th>
-            <th className="dt-th">Document type</th>
-            <th className="dt-th">Category</th>
-            <th className="dt-th">Source</th>
-            <th className="dt-th">Sig. req.</th>
-            <th className="dt-th"/>
-          </tr></thead>
-          <tbody>
-            {rs.map((r,i)=>(
-              <tr key={r.id} className={i===rs.length-1?'dt-tr-last':''}>
-                <td className="dt-td"><span className="dt-badge" style={{background:'#f1f5f9',color:'#475569',fontSize:11}}>{r.condition_value}</span></td>
-                <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
-                <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.category||'—'}</td>
-                <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.source||'—'}</td>
-                <td className="dt-td" style={{cursor:'pointer'}} onClick={()=>toggleSigReq(r.id,r.signature_required)} title="Click to toggle">{r.signature_required?<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Yes</span>:<span style={{color:'#94a3b8',fontSize:12}}>No</span>}</td>
-                <td className="dt-td" style={{textAlign:'right'}}>
-                  <button onClick={()=>deleteRule(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}>
-                    <i className="ti ti-trash" style={{fontSize:14}}/>
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    ));
-  }
-
-  function renderGroupedView(){
-    if(loading)return <div style={{padding:'24px',textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading…</div>;
-    if(destRules.length===0)return <div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No destination country rules yet.</div>;
+  function renderByCountry(){
+    if(loading)return <div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading…</div>;
+    if(allCountries.length===0)return <div style={{padding:'32px',textAlign:'center',color:'#94a3b8',fontSize:13}}>No country rules yet.</div>;
     const byCountry={};
-    destRules.forEach(r=>{
-      const c=r.condition_value;
-      if(!byCountry[c])byCountry[c]=[];
-      byCountry[c].push(r);
-    });
-    const sorted=Object.keys(byCountry).sort();
-    return sorted.map(country=>{
-      const docs=byCountry[country];
+    destRules.forEach(r=>{if(!byCountry[r.condition_value])byCountry[r.condition_value]=[];byCountry[r.condition_value].push(r);});
+    return allCountries.map(country=>{
+      const docs=byCountry[country]||[];
       return(
-        <div key={country} className="dt-card" style={{marginBottom:12}}>
-          <div style={{padding:'11px 16px',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:10}}>
-            <i className="ti ti-map-pin" style={{fontSize:14,color:'#64748b'}}/>
-            <span style={{fontWeight:500,fontSize:14,color:'#0f172a'}}>{country}</span>
-            <span style={{fontSize:12,color:'#94a3b8',marginLeft:4}}>{docs.length} document{docs.length!==1?'s':''} required</span>
+        <div key={country}>
+          <div style={{padding:'8px 16px',background:'#f8fafc',borderBottom:'1px solid #f1f5f9',display:'flex',alignItems:'center',gap:8}}>
+            <i className="ti ti-map-pin" style={{fontSize:13,color:'#64748b'}}/>
+            <span style={{fontWeight:500,fontSize:13,color:'#0f172a'}}>{country}</span>
+            <span style={{fontSize:11,color:'#94a3b8'}}>{docs.length} doc{docs.length!==1?'s':''}</span>
           </div>
           <table className="dt-table">
             <thead><tr>
               <th className="dt-th">Document type</th>
               <th className="dt-th">Category</th>
               <th className="dt-th">Source</th>
-              <th className="dt-th">Sig. req.</th>
               <th className="dt-th"/>
             </tr></thead>
             <tbody>
@@ -1835,11 +1842,8 @@ function CountryDocNeedsView({showToast}){
                   <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
                   <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.category||'—'}</td>
                   <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.source||'—'}</td>
-                  <td className="dt-td" style={{cursor:'pointer'}} onClick={()=>toggleSigReq(r.id,r.signature_required)} title="Click to toggle">{r.signature_required?<span className="dt-sig-badge" style={{background:'#ede9fe',color:'#7c3aed'}}><i className="ti ti-pencil-check" style={{fontSize:10}}/>Yes</span>:<span style={{color:'#94a3b8',fontSize:12}}>No</span>}</td>
                   <td className="dt-td" style={{textAlign:'right'}}>
-                    <button onClick={()=>deleteRule(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}>
-                      <i className="ti ti-trash" style={{fontSize:14}}/>
-                    </button>
+                    <button onClick={()=>removeDoc(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}><i className="ti ti-trash" style={{fontSize:14}}/></button>
                   </td>
                 </tr>
               ))}
@@ -1852,22 +1856,69 @@ function CountryDocNeedsView({showToast}){
 
   return(
     <div>
+      {/* Standard docs — all countries */}
       <div className="dt-card" style={{marginBottom:16}}>
         <div className="dt-section-hdr">
+          <span style={{display:'flex',alignItems:'center',gap:7}}><i className="ti ti-file-check" style={{fontSize:15,color:'#64748b'}}/>Standard documents — all countries<span style={{fontSize:11,color:'#94a3b8',fontWeight:400}}>{baseDocs.length} docs</span></span>
+        </div>
+        <div style={{padding:'10px 16px',background:'#f8fafc',borderBottom:'1px solid #e2e8f0',display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}}>
+          <input value={newBase.document_type} onChange={e=>setNewBase(p=>({...p,document_type:e.target.value}))} placeholder="Document type…" style={{fontSize:12,flex:'1 1 160px'}}/>
+          <input value={newBase.category} onChange={e=>setNewBase(p=>({...p,category:e.target.value}))} placeholder="Category…" style={{fontSize:12,flex:'0 0 120px'}}/>
+          <input value={newBase.source} onChange={e=>setNewBase(p=>({...p,source:e.target.value}))} placeholder="Source…" style={{fontSize:12,flex:'0 0 120px'}}/>
+          <button onClick={addBaseDoc} disabled={!newBase.document_type} className="dt-btn-primary" style={{fontSize:12,padding:'6px 14px'}}>Add</button>
+        </div>
+        {baseDocs.length===0
+          ?<div style={{padding:'16px',textAlign:'center',color:'#94a3b8',fontSize:12}}>No standard documents yet — these apply to every destination.</div>
+          :<table className="dt-table">
+            <thead><tr>
+              <th className="dt-th">Document type</th><th className="dt-th">Category</th><th className="dt-th">Source</th><th className="dt-th"/>
+            </tr></thead>
+            <tbody>
+              {baseDocs.map((r,i)=>(
+                <tr key={r.id} className={i===baseDocs.length-1?'dt-tr-last':''}>
+                  <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
+                  <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.category||'—'}</td>
+                  <td className="dt-td" style={{fontSize:12,color:'#64748b'}}>{r.source||'—'}</td>
+                  <td className="dt-td" style={{textAlign:'right'}}><button onClick={()=>removeDoc(r.id)} style={{background:'none',border:'none',padding:'2px 6px',cursor:'pointer',color:'#dc2626',fontSize:13,display:'inline-flex',alignItems:'center'}}><i className="ti ti-trash" style={{fontSize:14}}/></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        }
+      </div>
+
+      {/* Country-specific grid/list */}
+      <div className="dt-card">
+        <div className="dt-section-hdr">
           <div style={{display:'flex',alignItems:'center',gap:12}}>
-            Country document rules
-            <div style={{display:'flex',gap:4,background:'#f1f5f9',borderRadius:6,padding:2}}>
-              <button onClick={()=>setViewMode('list')} style={{fontSize:11,padding:'3px 10px',borderRadius:4,border:'none',background:viewMode==='list'?'#fff':'transparent',color:viewMode==='list'?'#0f172a':'#64748b',fontWeight:viewMode==='list'?500:400,boxShadow:viewMode==='list'?'0 1px 3px rgba(0,0,0,.08)':'none',cursor:'pointer'}}>List view</button>
-              <button onClick={()=>setViewMode('grouped')} style={{fontSize:11,padding:'3px 10px',borderRadius:4,border:'none',background:viewMode==='grouped'?'#fff':'transparent',color:viewMode==='grouped'?'#0f172a':'#64748b',fontWeight:viewMode==='grouped'?500:400,boxShadow:viewMode==='grouped'?'0 1px 3px rgba(0,0,0,.08)':'none',cursor:'pointer'}}>By country</button>
+            <span>Country-specific requirements</span>
+            <div style={{display:'flex',gap:3,background:'#f1f5f9',borderRadius:6,padding:2}}>
+              <button onClick={()=>setViewMode('grid')} style={{fontSize:11,padding:'3px 10px',borderRadius:4,border:'none',background:viewMode==='grid'?'#fff':'transparent',color:viewMode==='grid'?'#0f172a':'#64748b',fontWeight:viewMode==='grid'?500:400,boxShadow:viewMode==='grid'?'0 1px 2px rgba(0,0,0,.08)':'none',cursor:'pointer'}}>Grid</button>
+              <button onClick={()=>setViewMode('list')} style={{fontSize:11,padding:'3px 10px',borderRadius:4,border:'none',background:viewMode==='list'?'#fff':'transparent',color:viewMode==='list'?'#0f172a':'#64748b',fontWeight:viewMode==='list'?500:400,boxShadow:viewMode==='list'?'0 1px 2px rgba(0,0,0,.08)':'none',cursor:'pointer'}}>By country</button>
             </div>
           </div>
-          <button onClick={()=>setAddingRule(p=>!p)} style={{fontSize:12,display:'flex',alignItems:'center',gap:4,color:'#2563eb',background:'none',border:'none',cursor:'pointer',padding:0,fontFamily:"'DM Sans',sans-serif"}}>
-            <i className={`ti ${addingRule?'ti-x':'ti-plus'}`}/>{addingRule?'Cancel':'Add rule'}
-          </button>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            {dupCount>0&&<button onClick={cleanupDups} style={{fontSize:12,color:'#dc2626',background:'none',border:'1px solid #fca5a5',borderRadius:5,padding:'3px 10px',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}><i className="ti ti-sparkles" style={{fontSize:11}}/>Clean up {dupCount} dups</button>}
+            <button onClick={()=>setAddModal(true)} style={{fontSize:12,display:'flex',alignItems:'center',gap:4,color:'#2563eb',background:'none',border:'none',cursor:'pointer',padding:0,fontFamily:"'DM Sans',sans-serif"}}>
+              <i className="ti ti-plus"/>Add rule
+            </button>
+          </div>
         </div>
-        {renderAddForm()}
-        {viewMode==='list'?renderListView():renderGroupedView()}
+        {viewMode==='grid'?renderGrid():renderByCountry()}
       </div>
+
+      {addModal&&(
+        <ModalWrap title="Add country rule" onClose={()=>setAddModal(false)}>
+          <FField label="Country"><input value={newEntry.country} onChange={e=>setNewEntry(p=>({...p,country:e.target.value}))} placeholder="e.g. Turkey" autoFocus/></FField>
+          <FField label="Document type"><input value={newEntry.document_type} onChange={e=>setNewEntry(p=>({...p,document_type:e.target.value}))} placeholder="e.g. ATR Certificate"/></FField>
+          <FField label="Category"><input value={newEntry.category} onChange={e=>setNewEntry(p=>({...p,category:e.target.value}))} placeholder="e.g. Customs docs"/></FField>
+          <FField label="Source"><input value={newEntry.source} onChange={e=>setNewEntry(p=>({...p,source:e.target.value}))} placeholder="e.g. Dutch Customs"/></FField>
+          <div className="dt-modal-actions">
+            <button onClick={()=>setAddModal(false)}>Cancel</button>
+            <button onClick={addDestRule} disabled={!newEntry.country||!newEntry.document_type} className="dt-btn-primary">Add</button>
+          </div>
+        </ModalWrap>
+      )}
     </div>
   );
 }
