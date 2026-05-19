@@ -151,6 +151,7 @@ button:hover{background:#f8fafc}
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5/papaparse.min.js"></script>
+<script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -242,17 +243,32 @@ function getRequiredDocs(){
     {docType:'Certificate of Origin',          category:'CoC docs',        source:'Chamber of Commerce'},
   ];
 }
-async function getConditionalDocs(dest,incoterms){
-  const{data}=await sb.from('doc_rules').select('*');
+async function getConditionalDocs(dest,incoterms,customerName=''){
+  const[{data:docRules},{data:custRules}]=await Promise.all([
+    sb.from('doc_rules').select('*'),
+    sb.from('customer_doc_rules').select('*')
+  ]);
   const d=(dest||'').toLowerCase();
   const inc=(incoterms||'').toLowerCase();
-  return(data||[])
+  const cust=(customerName||'').toLowerCase();
+  const extraFromCustRules=(custRules||[])
+    .filter(r=>{
+      const custMatch=!r.customer_name||cust.includes(r.customer_name.toLowerCase());
+      const destMatch=!r.destination_country||d.includes(r.destination_country.toLowerCase());
+      return custMatch&&destMatch;
+    })
+    .flatMap(r=>Array.from({length:r.copies_required||1},(_,i)=>({
+      docType:i===0?r.document_type:`${r.document_type} (Copy ${i+1})`,
+      category:'Customer docs',source:'Customer Rule',signatureRequired:false
+    })));
+  const extraFromDocRules=(docRules||[])
     .filter(r=>{
       if(r.condition_field==='destination')return d.includes(r.condition_value.toLowerCase());
       if(r.condition_field==='incoterms')return inc===r.condition_value.toLowerCase();
       return false;
     })
     .map(r=>({docType:r.document_type,category:r.category,source:r.source||'',signatureRequired:!!r.signature_required}));
+  return[...extraFromDocRules,...extraFromCustRules];
 }
 
 /* ── ISO 6346 container number validation ── */
@@ -455,6 +471,7 @@ function Sidebar({user,view,onNav,onLogout,open,onClose}){
           {item("ti-users","Users","users")}
           {item("ti-list-details","Order types","types")}
           {item("ti-signature","Signature rules","signature-rules")}
+          {item("ti-file-text","Customer doc rules","customer-doc-rules")}
           {item("ti-user-share","Customer portals","customer-portals")}
         </>}
       </div>
@@ -874,6 +891,9 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   const[containerInput,setContainerInput]=useState('');
   const[editingContainer,setEditingContainer]=useState(false);
   const[savingContainer,setSavingContainer]=useState(false);
+  const[downloadingAll,setDownloadingAll]=useState(false);
+  const[historyModal,setHistoryModal]=useState(null);
+  const[docVersions,setDocVersions]=useState([]);
 
   useEffect(()=>{load();},[orderId]);
 
@@ -988,6 +1008,60 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     const a=document.createElement('a');a.href=data.signedUrl;a.download=fileName;a.click();
   }
 
+  async function downloadAllDocs(){
+    if(isSeed){showToast('Not available for demo orders',false);return;}
+    setDownloadingAll(true);
+    showToast('Preparing documents…');
+    try{
+      const{PDFDocument}=window.PDFLib;
+      const urlResults=await Promise.all(items.map(async item=>{
+        const folder=(item.category||'').trim().replace(/ /g,'_');
+        const docName=(item.document_type||'').trim().replace(/ /g,'_');
+        const path=`${order.order_number}/${folder}/${docName}_${order.order_number}.pdf`;
+        const{data}=await sb.storage.from('documents').createSignedUrl(path,300);
+        return data?.signedUrl?{url:data.signedUrl,name:docName,cat:item.category}:null;
+      }));
+      const valid=urlResults.filter(Boolean);
+      if(!valid.length){showToast('No PDFs found in storage',false);setDownloadingAll(false);return;}
+      const fetched=await Promise.all(valid.map(async v=>{
+        try{const r=await fetch(v.url);if(!r.ok)return null;return{bytes:await r.arrayBuffer(),name:v.name};}
+        catch{return null;}
+      }));
+      const loaded=fetched.filter(Boolean);
+      if(!loaded.length){showToast('Could not fetch PDFs',false);setDownloadingAll(false);return;}
+      const MAX=5*1024*1024;
+      let mergedDoc=await PDFDocument.create();let mergedSize=0;let partNum=1;const parts=[];
+      const flush=async doc=>{const bytes=await doc.save();parts.push(bytes);};
+      for(const{bytes}of loaded){
+        const src=await PDFDocument.load(bytes,{ignoreEncryption:true});
+        const pages=await mergedDoc.copyPagesFrom(src,src.getPageIndices());
+        pages.forEach(p=>mergedDoc.addPage(p));
+        mergedSize+=bytes.byteLength;
+        if(mergedSize>=MAX){await flush(mergedDoc);mergedDoc=await PDFDocument.create();mergedSize=0;partNum++;}
+      }
+      if(mergedDoc.getPageCount()>0)await flush(mergedDoc);
+      parts.forEach((bytes,i)=>{
+        const blob=new Blob([bytes],{type:'application/pdf'});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=url;a.download=parts.length>1?`${order.order_number}_docs_part${i+1}.pdf`:`${order.order_number}_all_documents.pdf`;
+        a.click();URL.revokeObjectURL(url);
+      });
+      showToast(`Downloaded ${loaded.length} documents${parts.length>1?` in ${parts.length} files`:''}`);
+    }catch(e){showToast('Download failed: '+e.message,false);}
+    setDownloadingAll(false);
+  }
+
+  async function loadDocHistory(item){
+    const{data}=await sb.from('document_versions')
+      .select('*')
+      .eq('order_number',order.order_number)
+      .eq('document_type',item.document_type)
+      .order('uploaded_at',{ascending:false});
+    setDocVersions(data||[]);
+    setHistoryModal(item);
+  }
+
   async function updateOrderStatus(newStatus){
     if(!isSeed){
       const{error}=await sb.from('orders').update({status:newStatus,ready_to_ship:newStatus==="Complete"}).eq('order_number',order.order_number);
@@ -1065,6 +1139,8 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     if(error){showToast('Upload failed: '+error.message,false);}
     else{
       await logActivity('upload',{doc_type:item.document_type,path:storagePath});
+      await sb.from('document_versions').update({is_current:false}).eq('order_number',order.order_number).eq('document_type',item.document_type);
+      await sb.from('document_versions').insert({order_number:order.order_number,document_type:item.document_type,category:item.category||'',file_path:storagePath,uploaded_by:currentUser?.email||currentUser?.username||'unknown',file_size_bytes:file.size,is_current:true});
       if(!['Verified','Waived','Complete'].includes(item.status)&&!isSeed){
         await sb.from('checklist_items').update({status:'Received'}).eq('id',item.id);
         setItems(p=>p.map(i=>i.id===item.id?{...i,status:'Received'}:i));
@@ -1146,6 +1222,9 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
             {!isSeed&&<button onClick={generateShare} style={{marginTop:8,fontSize:11,display:"flex",alignItems:"center",gap:4,color:"#2563eb",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"'DM Sans',sans-serif",marginLeft:"auto"}}>
               <i className="ti ti-share" style={{fontSize:13}}/>{order.share_token?"Copy share link":"Generate share link"}
             </button>}
+            {!isSeed&&<button onClick={downloadAllDocs} disabled={downloadingAll} style={{marginTop:6,fontSize:11,display:"flex",alignItems:"center",gap:4,color:downloadingAll?"#94a3b8":"#7c3aed",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"'DM Sans',sans-serif",marginLeft:"auto",opacity:downloadingAll?.6:1}}>
+              <i className={`ti ${downloadingAll?"ti-loader-2":"ti-file-zip"}`} style={{fontSize:13}}/>{downloadingAll?"Preparing…":"Download all docs"}
+            </button>}
           </div>
         </div>
       </div>
@@ -1219,6 +1298,9 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                         <button onClick={()=>downloadDoc(item)} title="Download PDF" style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",display:"flex",alignItems:"center",fontSize:12}}>
                           <i className="ti ti-file-download" style={{fontSize:16,color:"#7c3aed"}}/>
                         </button>
+                        {!isSeed&&<button onClick={()=>loadDocHistory(item)} title="Version history" style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",display:"flex",alignItems:"center",fontSize:12}}>
+                          <i className="ti ti-history" style={{fontSize:15,color:"#94a3b8"}}/>
+                        </button>}
                         {!ro&&!isSeed&&(
                           <button onClick={()=>triggerUpload(item)} title="Upload PDF" disabled={uploading===item.id} style={{background:"none",border:"none",padding:"2px 4px",cursor:"pointer",display:"flex",alignItems:"center",fontSize:12,opacity:uploading===item.id?.5:1}}>
                             {uploading===item.id
@@ -1385,6 +1467,42 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
               <button onClick={sendSigRequest} disabled={!sigModal.signerEmail} className="dt-btn-primary" style={{fontSize:12,padding:"6px 16px",display:"flex",alignItems:"center",gap:6,opacity:sigModal.signerEmail?1:.45}}>
                 <i className="ti ti-send"/>Send request
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {historyModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div className="dt-card" style={{width:"100%",maxWidth:520,padding:"22px 26px",margin:16,maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:600,color:"#0f172a"}}>{historyModal.document_type} — Version History</div>
+                <div style={{fontSize:12,color:"#64748b"}}>{historyModal.category}</div>
+              </div>
+              <button onClick={()=>setHistoryModal(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:18}}><i className="ti ti-x"/></button>
+            </div>
+            <div style={{overflowY:"auto",flex:1}}>
+              {docVersions.length===0
+                ?<div style={{textAlign:"center",padding:"32px 0",color:"#94a3b8",fontSize:13}}><i className="ti ti-history" style={{fontSize:28,display:"block",marginBottom:8,color:"#e2e8f0"}}/>No upload history yet</div>
+                :docVersions.map((v,i)=>(
+                  <div key={v.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:i<docVersions.length-1?"1px solid #f1f5f9":"none"}}>
+                    <div style={{width:32,height:32,borderRadius:8,background:v.is_current?"#dcfce7":"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <i className={`ti ${v.is_current?"ti-circle-check":"ti-history"}`} style={{fontSize:15,color:v.is_current?"#15803d":"#94a3b8"}}/>
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:500,color:"#0f172a",display:"flex",alignItems:"center",gap:6}}>
+                        {v.is_current&&<span style={{fontSize:10,background:"#dcfce7",color:"#15803d",padding:"1px 6px",borderRadius:10,fontWeight:600}}>Current</span>}
+                        {new Date(v.uploaded_at).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}
+                      </div>
+                      <div style={{fontSize:11,color:"#64748b"}}>{v.uploaded_by}{v.file_size_bytes?` · ${(v.file_size_bytes/1024).toFixed(0)} KB`:''}</div>
+                    </div>
+                    <button onClick={async()=>{const{data}=await sb.storage.from('documents').createSignedUrl(v.file_path,60,{download:v.file_path.split('/').pop()});if(data?.signedUrl){const a=document.createElement('a');a.href=data.signedUrl;a.download=v.file_path.split('/').pop();a.click();}}} style={{background:"none",border:"1px solid #e2e8f0",borderRadius:6,padding:"4px 10px",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",gap:4,color:"#64748b"}}>
+                      <i className="ti ti-download" style={{fontSize:12}}/>Download
+                    </button>
+                  </div>
+                ))
+              }
             </div>
           </div>
         </div>
@@ -1754,7 +1872,7 @@ function CsvImportModal({onClose,onImported,showToast}){
       }).select().single();
       if(!error&&newOrder){
         const baseDocs=getRequiredDocs();
-        const condDocs=await getConditionalDocs(r.destination,r.incoterms||'CIF');
+        const condDocs=await getConditionalDocs(r.destination,r.incoterms||'CIF',r.customer);
         const docs=[...baseDocs,...condDocs];
         await sb.from('checklist_items').insert(docs.map(d=>({
           order_id:newOrder.id,
@@ -1954,6 +2072,105 @@ function KVKSearch(){
           <div style={{fontSize:11,color:"#cbd5e1",marginTop:6}}>Powered by KVK test API via N8N</div>
         </div>
       )}
+    </div>
+  );
+}
+
+function CustomerDocRulesView({showToast}){
+  const[rules,setRules]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[adding,setAdding]=useState(false);
+  const blank={customer_name:'',destination_country:'',document_type:'',copies_required:1,condition_type:'Always'};
+  const[newRule,setNewRule]=useState(blank);
+  const ur=(k,v)=>setNewRule(p=>({...p,[k]:v}));
+  const DOC_TYPES=['Invoice','Proforma Invoice','Predated Invoice','Packing List','Certificate of Analysis','BL','SWB','Certificate of Origin','SGS Inspection Report','IPPC and ISPM15','Insurance','Shipment Advice','Beneficiary Certificate','ATR','UIT Export Declaration','Bank Draft','Cover Letter','Manufacturer Declaration'];
+
+  useEffect(()=>{
+    sb.from('customer_doc_rules').select('*').order('created_at',{ascending:false}).then(({data})=>{setRules(data||[]);setLoading(false);});
+  },[]);
+
+  async function addRule(){
+    if(!newRule.document_type){showToast('Document type is required',false);return;}
+    const{data,error}=await sb.from('customer_doc_rules').insert({...newRule,customer_name:newRule.customer_name||null,destination_country:newRule.destination_country||null}).select().single();
+    if(error){showToast('Failed to save rule: '+error.message,false);return;}
+    setRules(p=>[data,...p]);setAdding(false);setNewRule(blank);showToast('Rule added');
+  }
+
+  async function deleteRule(id){
+    const{error}=await sb.from('customer_doc_rules').delete().eq('id',id);
+    if(error){showToast('Failed to delete rule',false);return;}
+    setRules(p=>p.filter(r=>r.id!==id));showToast('Rule deleted');
+  }
+
+  return(
+    <div className="dt-card">
+      <div className="dt-section-hdr" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span>Customer document rules</span>
+        <button onClick={()=>setAdding(p=>!p)} className="dt-btn-primary" style={{fontSize:11,padding:"4px 12px",display:"flex",alignItems:"center",gap:4}}>
+          <i className="ti ti-plus"/>{adding?'Cancel':'Add rule'}
+        </button>
+      </div>
+      <div style={{padding:"12px 16px",fontSize:12,color:"#64748b",borderBottom:"1px solid #f1f5f9"}}>
+        Rules define extra documents required per customer or destination — e.g. duplicate invoices, country-specific packing lists. Leave customer or destination blank to apply to all.
+      </div>
+      {adding&&(
+        <div style={{padding:"14px 16px",background:"#fafafe",borderBottom:"1px solid #e2e8f0",display:"flex",gap:8,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            <label style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em"}}>CUSTOMER (blank = all)</label>
+            <input value={newRule.customer_name} onChange={e=>ur('customer_name',e.target.value)} placeholder="e.g. Michelin Reifenwerke…" style={{fontSize:12,padding:"5px 8px",width:200}}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            <label style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em"}}>DESTINATION (blank = all)</label>
+            <input value={newRule.destination_country} onChange={e=>ur('destination_country',e.target.value)} placeholder="e.g. Germany" style={{fontSize:12,padding:"5px 8px",width:130}}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            <label style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em"}}>DOCUMENT TYPE</label>
+            <select value={newRule.document_type} onChange={e=>ur('document_type',e.target.value)} style={{fontSize:12,padding:"5px 8px",width:180}}>
+              <option value="">Select…</option>
+              {DOC_TYPES.map(d=><option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            <label style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em"}}>COPIES</label>
+            <input type="number" min={1} max={5} value={newRule.copies_required} onChange={e=>ur('copies_required',parseInt(e.target.value)||1)} style={{fontSize:12,padding:"5px 8px",width:60}}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            <label style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em"}}>CONDITION</label>
+            <select value={newRule.condition_type} onChange={e=>ur('condition_type',e.target.value)} style={{fontSize:12,padding:"5px 8px",width:110}}>
+              <option value="Always">Always</option>
+              <option value="Conditional">Conditional</option>
+            </select>
+          </div>
+          <button onClick={addRule} className="dt-btn-primary" style={{fontSize:12,padding:"5px 14px"}}>Save</button>
+        </div>
+      )}
+      {loading
+        ?<div style={{padding:"32px",textAlign:"center",color:"#94a3b8",fontSize:13}}>Loading…</div>
+        :rules.length===0&&!adding
+          ?<div style={{padding:"40px",textAlign:"center",color:"#94a3b8",fontSize:13}}><i className="ti ti-file-text" style={{fontSize:28,display:"block",marginBottom:8,color:"#e2e8f0"}}/>No rules yet. Add rules to require extra documents per customer or destination.</div>
+          :<table className="dt-table">
+            <thead><tr>
+              <th className="dt-th">Customer</th>
+              <th className="dt-th">Destination</th>
+              <th className="dt-th">Document</th>
+              <th className="dt-th">Copies</th>
+              <th className="dt-th">Condition</th>
+              <th className="dt-th"></th>
+            </tr></thead>
+            <tbody>
+              {rules.map((r,i)=>(
+                <tr key={r.id} className={i===rules.length-1?"dt-tr-last":""}>
+                  <td className="dt-td">{r.customer_name||<span style={{color:"#94a3b8"}}>All customers</span>}</td>
+                  <td className="dt-td">{r.destination_country||<span style={{color:"#94a3b8"}}>All destinations</span>}</td>
+                  <td className="dt-td" style={{fontWeight:500}}>{r.document_type}</td>
+                  <td className="dt-td">{r.copies_required}</td>
+                  <td className="dt-td"><span style={{fontSize:11,padding:"2px 8px",borderRadius:10,background:r.condition_type==='Always'?"#dbeafe":"#fef3c7",color:r.condition_type==='Always'?"#1d4ed8":"#b45309"}}>{r.condition_type}</span></td>
+                  <td className="dt-td"><button onClick={()=>deleteRule(r.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",padding:"2px 4px"}}><i className="ti ti-trash" style={{fontSize:14}}/></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+      }
     </div>
   );
 }
@@ -2440,7 +2657,7 @@ function App(){
   if(sessionLoading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
   if(!user) return <Login users={users} onLogin={login}/>;
 
-  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types",integrations:"Integrations","kvk-search":"KVK Company Search","signature-rules":"Signature rules","customer-portals":"Customer portals"};
+  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types",integrations:"Integrations","kvk-search":"KVK Company Search","signature-rules":"Signature rules","customer-doc-rules":"Customer doc rules","customer-portals":"Customer portals"};
 
   return(
     <div className="dt-app">
@@ -2469,6 +2686,7 @@ function App(){
           {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
           {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}}/>}
           {view==="signature-rules"&&canAdmin(user.role)&&<SignatureRulesView showToast={showToast}/>}
+          {view==="customer-doc-rules"&&canAdmin(user.role)&&<CustomerDocRulesView showToast={showToast}/>}
           {view==="customer-portals"&&canAdmin(user.role)&&<CustomerPortalsView currentUser={user} showToast={showToast}/>}
         </div>
       </div>
@@ -2490,7 +2708,7 @@ function App(){
         }).select().single();
         if(error){showToast('Failed to create order: '+error.message,false);return;}
         const baseDocs=getRequiredDocs();
-        const condDocs=await getConditionalDocs(f.destination,f.incoterms);
+        const condDocs=await getConditionalDocs(f.destination,f.incoterms,f.customer);
         const docs=[...baseDocs,...condDocs];
         await sb.from('checklist_items').insert(docs.map(d=>({
           order_id:newOrder.id,
