@@ -1627,21 +1627,75 @@ function UsersView({users,onUpdate}){
   );
 }
 
-function TypesView({orderTypes,onAddDoc,onUpdateDoc}){
+function TypesView({showToast,refreshKey}){
+  const[types,setTypes]=useState([]);
+  const[loading,setLoading]=useState(true);
   const[expanded,setExpanded]=useState(null);
-  const[docName,setDocName]=useState("");
-  const[docCat,setDocCat]=useState("");
-  const[docSrc,setDocSrc]=useState("");
-  const[docReq,setDocReq]=useState(true);
+  const[docInputs,setDocInputs]=useState({}); // per-typeId add-form state
   const[editCell,setEditCell]=useState(null);
   const[editVal,setEditVal]=useState('');
+  const[saving,setSaving]=useState(false);
 
-  function startEdit(d,field){setEditCell({id:d.id,field});setEditVal(d[field]||'');}
-  function commitEdit(otId){if(!editCell)return;onUpdateDoc(otId,editCell.id,{[editCell.field]:editVal});setEditCell(null);}
+  useEffect(()=>{load();},[refreshKey]);
+
+  async function load(){
+    setLoading(true);
+    const[{data:ots},{data:docs}]=await Promise.all([
+      sb.from('order_types').select('*').order('sort_order'),
+      sb.from('order_type_docs').select('*').order('sort_order')
+    ]);
+    if(ots&&ots.length>0){
+      setTypes(ots.map(ot=>({...ot,docs:(docs||[]).filter(d=>d.order_type_id===ot.id)})));
+    }else{
+      setTypes(SEED_ORDER_TYPES);
+    }
+    setLoading(false);
+  }
+
+  function startEdit(d,field){setEditCell({id:d.id,otId:d.order_type_id,field});setEditVal(d[field]||'');}
+
+  async function commitEdit(){
+    if(!editCell)return;
+    const{id,otId,field}=editCell;
+    const val=editVal;
+    setEditCell(null);
+    setSaving(true);
+    const{error}=await sb.from('order_type_docs').update({[field]:val}).eq('id',id);
+    setSaving(false);
+    if(error){showToast&&showToast('Save failed: '+error.message,false);return;}
+    setTypes(p=>p.map(ot=>ot.id===otId?{...ot,docs:ot.docs.map(d=>d.id===id?{...d,[field]:val}:d)}:ot));
+    if(field==='notes')showToast&&showToast('Note saved');
+  }
+
+  function inp(otId){return docInputs[otId]||{name:'',cat:'',src:'',req:true};}
+  function setInp(otId,patch){setDocInputs(p=>({...p,[otId]:{...inp(otId),...patch}}));}
+
+  async function addDoc(ot){
+    const{name,cat,src,req}=inp(ot.id);
+    if(!name.trim())return;
+    const newDoc={
+      id:`doc_${Date.now()}`,
+      order_type_id:ot.id,
+      name:name.trim(),
+      category:cat.trim()||'General',
+      source:src.trim(),
+      notes:'',
+      required:req,
+      sort_order:ot.docs.length
+    };
+    const{data,error}=await sb.from('order_type_docs').insert(newDoc).select().single();
+    if(error){showToast&&showToast('Save failed: '+error.message,false);return;}
+    setTypes(p=>p.map(t=>t.id===ot.id?{...t,docs:[...t.docs,data||newDoc]}:t));
+    setDocInputs(p=>({...p,[ot.id]:{name:'',cat:'',src:'',req:true}}));
+    showToast&&showToast('Document added');
+  }
+
+  if(loading)return <div style={{padding:'40px',textAlign:'center',color:'#94a3b8',fontSize:13}}>Loading…</div>;
 
   return(
     <div>
-      {orderTypes.map(ot=>(
+      {saving&&<div style={{position:'fixed',top:12,right:20,background:'#0f172a',color:'#fff',borderRadius:6,padding:'5px 12px',fontSize:12,zIndex:500}}>Saving…</div>}
+      {types.map(ot=>(
         <div key={ot.id} className="dt-type-item">
           <div className="dt-type-hdr" onClick={()=>setExpanded(expanded===ot.id?null:ot.id)}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -1667,7 +1721,7 @@ function TypesView({orderTypes,onAddDoc,onUpdateDoc}){
                         <thead><tr>
                           <th className="dt-th" style={{width:36}}/>
                           <th className="dt-th">Document</th>
-                          <th className="dt-th" style={{width:180}}>Source</th>
+                          <th className="dt-th" style={{width:190}}>Source</th>
                           <th className="dt-th">Notes</th>
                           <th className="dt-th" style={{width:80,textAlign:'right'}}/>
                         </tr></thead>
@@ -1676,16 +1730,16 @@ function TypesView({orderTypes,onAddDoc,onUpdateDoc}){
                             <tr key={d.id} className={i===catDocs.length-1?"dt-tr-last":""}>
                               <td className="dt-td" style={{width:36,paddingLeft:20}}><i className="ti ti-file-text" style={{fontSize:14,color:"#94a3b8"}}/></td>
                               <td className="dt-td" style={{fontWeight:500}}>{d.name}</td>
-                              <td className="dt-td" style={{width:180}}>
+                              <td className="dt-td" style={{width:190}}>
                                 {editCell?.id===d.id&&editCell?.field==='source'
-                                  ?<input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)} onBlur={()=>commitEdit(ot.id)} onKeyDown={e=>{if(e.key==='Enter')commitEdit(ot.id);if(e.key==='Escape')setEditCell(null);}} style={{fontSize:12,padding:'3px 6px',width:'100%'}}/>
-                                  :<span onClick={()=>startEdit(d,'source')} title="Click to edit" style={{fontSize:12,color:d.source?'#475569':'#cbd5e1',cursor:'text',display:'block',padding:'1px 2px',borderRadius:4,minHeight:20}}>{d.source||<span style={{color:'#cbd5e1',fontStyle:'italic'}}>Add source…</span>}</span>
+                                  ?<input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditCell(null);}} style={{fontSize:12,padding:'3px 6px',width:'100%'}}/>
+                                  :<span onClick={()=>startEdit({...d,order_type_id:ot.id},'source')} title="Click to edit source" style={{fontSize:12,color:d.source?'#475569':'#cbd5e1',cursor:'text',display:'block',padding:'2px 3px',borderRadius:4,minHeight:22,transition:'background .1s'}} onMouseEnter={e=>e.target.style.background='#f8fafc'} onMouseLeave={e=>e.target.style.background=''}>{d.source||<span style={{fontStyle:'italic'}}>Add source…</span>}</span>
                                 }
                               </td>
                               <td className="dt-td">
                                 {editCell?.id===d.id&&editCell?.field==='notes'
-                                  ?<input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)} onBlur={()=>commitEdit(ot.id)} onKeyDown={e=>{if(e.key==='Enter')commitEdit(ot.id);if(e.key==='Escape')setEditCell(null);}} style={{fontSize:12,padding:'3px 6px',width:'100%'}}/>
-                                  :<span onClick={()=>startEdit(d,'notes')} title="Click to edit" style={{fontSize:12,color:d.notes?'#475569':'#cbd5e1',cursor:'text',display:'block',padding:'1px 2px',borderRadius:4,minHeight:20}}>{d.notes||<span style={{color:'#cbd5e1',fontStyle:'italic'}}>Add note…</span>}</span>
+                                  ?<input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)} onBlur={commitEdit} onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditCell(null);}} style={{fontSize:12,padding:'3px 6px',width:'100%'}} placeholder="Type note and press Enter…"/>
+                                  :<span onClick={()=>startEdit({...d,order_type_id:ot.id},'notes')} title="Click to add/edit note" style={{fontSize:12,color:d.notes?'#0f172a':'#cbd5e1',cursor:'text',display:'flex',alignItems:'center',gap:6,padding:'2px 3px',borderRadius:4,minHeight:22,transition:'background .1s'}} onMouseEnter={e=>e.currentTarget.style.background='#f8fafc'} onMouseLeave={e=>e.currentTarget.style.background=''}>{d.notes||<span style={{fontStyle:'italic'}}>Add note…</span>}{d.notes&&<i className="ti ti-pencil" style={{fontSize:11,color:'#94a3b8',flexShrink:0}}/>}</span>
                                 }
                               </td>
                               <td className="dt-td" style={{width:80,textAlign:'right',paddingRight:14}}>{d.required?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>:<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}</td>
@@ -1698,13 +1752,13 @@ function TypesView({orderTypes,onAddDoc,onUpdateDoc}){
                 });
               })()}
               <div style={{padding:"10px 16px",background:"#fafafa",borderTop:"1px solid #f1f5f9",display:"flex",gap:8,alignItems:"center"}}>
-                <input value={docCat} onChange={e=>setDocCat(e.target.value)} placeholder="Category&#x2026;" style={{fontSize:12,flex:"0 0 130px"}}/>
-                <input value={docName} onChange={e=>setDocName(e.target.value)} placeholder="Document name&#x2026;" style={{fontSize:12,flex:1}}/>
-                <input value={docSrc} onChange={e=>setDocSrc(e.target.value)} placeholder="Source&#x2026;" style={{fontSize:12,flex:"0 0 140px"}}/>
+                <input value={inp(ot.id).cat} onChange={e=>setInp(ot.id,{cat:e.target.value})} placeholder="Category&#x2026;" style={{fontSize:12,flex:"0 0 120px"}}/>
+                <input value={inp(ot.id).name} onChange={e=>setInp(ot.id,{name:e.target.value})} placeholder="Document name&#x2026;" style={{fontSize:12,flex:1}} onKeyDown={e=>{if(e.key==='Enter')addDoc(ot);}}/>
+                <input value={inp(ot.id).src} onChange={e=>setInp(ot.id,{src:e.target.value})} placeholder="Source&#x2026;" style={{fontSize:12,flex:"0 0 140px"}}/>
                 <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#64748b",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-                  <input type="checkbox" checked={docReq} onChange={e=>setDocReq(e.target.checked)} style={{width:"auto"}}/> Required
+                  <input type="checkbox" checked={inp(ot.id).req} onChange={e=>setInp(ot.id,{req:e.target.checked})} style={{width:"auto"}}/> Required
                 </label>
-                <button onClick={()=>{if(docName.trim()){onAddDoc(ot.id,{name:docName.trim(),required:docReq,category:docCat.trim()||"General",source:docSrc.trim(),notes:''});setDocName("");setDocCat("");setDocSrc("");}}} style={{fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>Add</button>
+                <button onClick={()=>addDoc(ot)} style={{fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>Add</button>
               </div>
             </div>
           )}
@@ -2929,6 +2983,7 @@ function App(){
   const[orders,setOrders]=useState(SEED_ORDERS);
   const[users,setUsers]=useState(SEED_USERS);
   const[orderTypes,setOrderTypes]=useState(SEED_ORDER_TYPES);
+  const[typeRefresh,setTypeRefresh]=useState(0);
   const[toast,setToast]=useState(null);
   const[modal,setModal]=useState(null);
   const[sidebarOpen,setSidebarOpen]=useState(false);
@@ -3006,7 +3061,7 @@ function App(){
           {view==="integrations"&&<IntegrationsView/>}
           {view==="kvk-search"&&<KVKSearch/>}
           {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
-          {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}} onUpdateDoc={(tid,did,patch)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:ot.docs.map(d=>d.id===did?{...d,...patch}:d)}:ot));}}/>}
+          {view==="types"&&canAdmin(user.role)&&<TypesView showToast={showToast} refreshKey={typeRefresh}/>}
           {view==="country-doc-needs"&&canAdmin(user.role)&&<CountryDocNeedsView showToast={showToast}/>}
           {view==="signature-rules"&&canAdmin(user.role)&&<SignatureRulesView showToast={showToast}/>}
           {view==="customer-doc-rules"&&canAdmin(user.role)&&<CustomerDocRulesView showToast={showToast}/>}
@@ -3049,7 +3104,7 @@ function App(){
         showToast('Order created');
       }}/>}
       {modal==="user"&&<CreateUserModal onClose={()=>setModal(null)} onCreate={f=>{setUsers(p=>[...p,{...f,id:`u${p.length+1}`,created:toDay(),active:true}]);setModal(null);showToast("User created");}}/>}
-      {modal==="type"&&<CreateTypeModal onClose={()=>setModal(null)} onCreate={f=>{setOrderTypes(p=>[...p,{...f,id:`ot${p.length+1}`,docs:[]}]);setModal(null);showToast("Order type created");}}/>}
+      {modal==="type"&&<CreateTypeModal onClose={()=>setModal(null)} onCreate={async f=>{const id=`ot${Date.now()}`;await sb.from('order_types').insert({id,name:f.name,color:f.color,sort_order:orderTypes.length});setOrderTypes(p=>[...p,{...f,id,docs:[]}]);setTypeRefresh(p=>p+1);setModal(null);showToast("Category created");}}/>}
 
       <Toast toast={toast}/>
       {showSecurity&&<SecurityModal user={user} onClose={()=>setShowSecurity(false)}/>}
