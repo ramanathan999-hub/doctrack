@@ -169,25 +169,25 @@ const ROLES=["admin","manager","viewer"];
 
 const SEED_ORDER_TYPES=[
   {id:"ot1",name:"Shipment",color:"#f97316",docs:[
-    {id:"d01",name:"Invoice",required:true,category:"SAP docs"},
-    {id:"d02",name:"Certificate of Analysis",required:true,category:"SAP docs"},
-    {id:"d03",name:"Packing List",required:true,category:"SAP docs"},
-    {id:"d04",name:"Insurance",required:true,category:"SAP docs"},
-    {id:"d05",name:"Proforma Invoice",required:true,category:"SAP docs"},
-    {id:"d06",name:"Beneficiary Certificate",required:true,category:"SAP docs"},
-    {id:"d07",name:"Shipment Advice",required:true,category:"SAP docs"},
-    {id:"d08",name:"Predated Invoice",required:false,category:"SAP docs"},
-    {id:"d09",name:"SWB",required:true,category:"Freight docs"},
-    {id:"d10",name:"BL",required:true,category:"Freight docs"},
-    {id:"d11",name:"Shipping and Vessel Certificate",required:true,category:"Freight docs"},
-    {id:"d12",name:"UIT Export Declaration",required:true,category:"Customs docs"},
-    {id:"d13",name:"ATR",required:false,category:"Customs docs"},
-    {id:"d14",name:"IPPC and ISPM15",required:true,category:"Compliance docs"},
-    {id:"d15",name:"SGS Inspection Report",required:true,category:"Compliance docs"},
-    {id:"d16",name:"Bank Draft",required:true,category:"Finance docs"},
-    {id:"d17",name:"Manufacturer Declaration",required:true,category:"Internal docs"},
-    {id:"d18",name:"Cover Letter",required:true,category:"Internal docs"},
-    {id:"d19",name:"Certificate of Origin",required:true,category:"CoC docs"}
+    {id:"d01",name:"Invoice",required:true,category:"SAP docs",source:"ARL SAP",notes:""},
+    {id:"d02",name:"Certificate of Analysis",required:true,category:"SAP docs",source:"ARL SAP",notes:""},
+    {id:"d03",name:"Packing List",required:true,category:"SAP docs",source:"ARL SAP",notes:""},
+    {id:"d04",name:"Insurance",required:true,category:"SAP docs",source:"ARL SAP",notes:""},
+    {id:"d05",name:"Proforma Invoice",required:true,category:"SAP docs",source:"ARL SAP",notes:""},
+    {id:"d06",name:"Beneficiary Certificate",required:true,category:"SAP docs",source:"ARL SAP",notes:""},
+    {id:"d07",name:"Shipment Advice",required:true,category:"SAP docs",source:"ARL SAP",notes:""},
+    {id:"d08",name:"Predated Invoice",required:false,category:"SAP docs",source:"ARL SAP",notes:""},
+    {id:"d09",name:"SWB",required:true,category:"Freight docs",source:"Ocean liner / Forwarder",notes:""},
+    {id:"d10",name:"BL",required:true,category:"Freight docs",source:"Ocean liner / Forwarder",notes:""},
+    {id:"d11",name:"Shipping and Vessel Certificate",required:true,category:"Freight docs",source:"Ocean liner / Forwarder",notes:""},
+    {id:"d12",name:"UIT Export Declaration",required:true,category:"Customs docs",source:"Dutch Customs",notes:""},
+    {id:"d13",name:"ATR",required:false,category:"Customs docs",source:"Dutch Customs",notes:""},
+    {id:"d14",name:"IPPC and ISPM15",required:true,category:"Compliance docs",source:"NVWA",notes:""},
+    {id:"d15",name:"SGS Inspection Report",required:true,category:"Compliance docs",source:"SGS",notes:""},
+    {id:"d16",name:"Bank Draft",required:true,category:"Finance docs",source:"Bank",notes:""},
+    {id:"d17",name:"Manufacturer Declaration",required:true,category:"Internal docs",source:"Internal",notes:""},
+    {id:"d18",name:"Cover Letter",required:true,category:"Internal docs",source:"Internal",notes:""},
+    {id:"d19",name:"Certificate of Origin",required:true,category:"CoC docs",source:"Chamber of Commerce",notes:""}
   ]}
 ];
 
@@ -469,7 +469,7 @@ function Sidebar({user,view,onNav,onLogout,open,onClose,onSecurity}){
         {canAdmin(user.role)&&<>
           <div className="dt-nav-section" style={{marginTop:8}}>Admin</div>
           {item("ti-users","Users","users")}
-          {item("ti-list-details","Order types","types")}
+          {item("ti-list-details","Document & sources","types")}
           {item("ti-map-pin","Country doc needs","country-doc-needs")}
           {item("ti-signature","Signature rules","signature-rules")}
           {item("ti-file-text","Customer doc rules","customer-doc-rules")}
@@ -1627,11 +1627,17 @@ function UsersView({users,onUpdate}){
   );
 }
 
-function TypesView({orderTypes,onAddDoc}){
+function TypesView({orderTypes,onAddDoc,onUpdateDoc}){
   const[expanded,setExpanded]=useState(null);
   const[docName,setDocName]=useState("");
   const[docCat,setDocCat]=useState("");
+  const[docSrc,setDocSrc]=useState("");
   const[docReq,setDocReq]=useState(true);
+  const[editCell,setEditCell]=useState(null);
+  const[editVal,setEditVal]=useState('');
+
+  function startEdit(d,field){setEditCell({id:d.id,field});setEditVal(d[field]||'');}
+  function commitEdit(otId){if(!editCell)return;onUpdateDoc(otId,editCell.id,{[editCell.field]:editVal});setEditCell(null);}
 
   return(
     <div>
@@ -1658,12 +1664,31 @@ function TypesView({orderTypes,onAddDoc}){
                         <span style={{fontSize:11,color:"#94a3b8"}}>{catDocs.length} doc{catDocs.length!==1?"s":""}</span>
                       </div>
                       <table className="dt-table">
+                        <thead><tr>
+                          <th className="dt-th" style={{width:36}}/>
+                          <th className="dt-th">Document</th>
+                          <th className="dt-th" style={{width:180}}>Source</th>
+                          <th className="dt-th">Notes</th>
+                          <th className="dt-th" style={{width:80,textAlign:'right'}}/>
+                        </tr></thead>
                         <tbody>
                           {catDocs.map((d,i)=>(
                             <tr key={d.id} className={i===catDocs.length-1?"dt-tr-last":""}>
-                              <td className="dt-td" style={{width:32,paddingLeft:28}}><i className="ti ti-file-text" style={{fontSize:14,color:"#94a3b8"}}/></td>
+                              <td className="dt-td" style={{width:36,paddingLeft:20}}><i className="ti ti-file-text" style={{fontSize:14,color:"#94a3b8"}}/></td>
                               <td className="dt-td" style={{fontWeight:500}}>{d.name}</td>
-                              <td className="dt-td" style={{width:90,textAlign:'right',paddingRight:16}}>{d.required?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>:<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}</td>
+                              <td className="dt-td" style={{width:180}}>
+                                {editCell?.id===d.id&&editCell?.field==='source'
+                                  ?<input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)} onBlur={()=>commitEdit(ot.id)} onKeyDown={e=>{if(e.key==='Enter')commitEdit(ot.id);if(e.key==='Escape')setEditCell(null);}} style={{fontSize:12,padding:'3px 6px',width:'100%'}}/>
+                                  :<span onClick={()=>startEdit(d,'source')} title="Click to edit" style={{fontSize:12,color:d.source?'#475569':'#cbd5e1',cursor:'text',display:'block',padding:'1px 2px',borderRadius:4,minHeight:20}}>{d.source||<span style={{color:'#cbd5e1',fontStyle:'italic'}}>Add source…</span>}</span>
+                                }
+                              </td>
+                              <td className="dt-td">
+                                {editCell?.id===d.id&&editCell?.field==='notes'
+                                  ?<input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)} onBlur={()=>commitEdit(ot.id)} onKeyDown={e=>{if(e.key==='Enter')commitEdit(ot.id);if(e.key==='Escape')setEditCell(null);}} style={{fontSize:12,padding:'3px 6px',width:'100%'}}/>
+                                  :<span onClick={()=>startEdit(d,'notes')} title="Click to edit" style={{fontSize:12,color:d.notes?'#475569':'#cbd5e1',cursor:'text',display:'block',padding:'1px 2px',borderRadius:4,minHeight:20}}>{d.notes||<span style={{color:'#cbd5e1',fontStyle:'italic'}}>Add note…</span>}</span>
+                                }
+                              </td>
+                              <td className="dt-td" style={{width:80,textAlign:'right',paddingRight:14}}>{d.required?<span className="dt-badge" style={{background:"#fee2e2",color:"#b91c1c",fontSize:10}}>Required</span>:<span style={{fontSize:11,color:"#94a3b8"}}>Optional</span>}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1673,18 +1698,18 @@ function TypesView({orderTypes,onAddDoc}){
                 });
               })()}
               <div style={{padding:"10px 16px",background:"#fafafa",borderTop:"1px solid #f1f5f9",display:"flex",gap:8,alignItems:"center"}}>
-                <input value={docCat} onChange={e=>setDocCat(e.target.value)} placeholder="Category&#x2026;" style={{fontSize:12,flex:"0 0 160px"}}/>
+                <input value={docCat} onChange={e=>setDocCat(e.target.value)} placeholder="Category&#x2026;" style={{fontSize:12,flex:"0 0 130px"}}/>
                 <input value={docName} onChange={e=>setDocName(e.target.value)} placeholder="Document name&#x2026;" style={{fontSize:12,flex:1}}/>
+                <input value={docSrc} onChange={e=>setDocSrc(e.target.value)} placeholder="Source&#x2026;" style={{fontSize:12,flex:"0 0 140px"}}/>
                 <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#64748b",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
                   <input type="checkbox" checked={docReq} onChange={e=>setDocReq(e.target.checked)} style={{width:"auto"}}/> Required
                 </label>
-                <button onClick={()=>{if(docName.trim()){onAddDoc(ot.id,{name:docName.trim(),required:docReq,category:docCat.trim()||"General"});setDocName("");setDocCat("");}}} style={{fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>Add</button>
+                <button onClick={()=>{if(docName.trim()){onAddDoc(ot.id,{name:docName.trim(),required:docReq,category:docCat.trim()||"General",source:docSrc.trim(),notes:''});setDocName("");setDocCat("");setDocSrc("");}}} style={{fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>Add</button>
               </div>
             </div>
           )}
         </div>
       ))}
-
     </div>
   );
 }
@@ -2954,7 +2979,7 @@ function App(){
   if(sessionLoading)return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f1f5f9',fontSize:13,color:'#94a3b8'}}>Loading&#x2026;</div>;
   if(!user) return <Login users={users} onLogin={login}/>;
 
-  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Order types","country-doc-needs":"Country doc needs",integrations:"Integrations","kvk-search":"KVK Company Search","signature-rules":"Signature rules","customer-doc-rules":"Customer doc rules","customer-portals":"Customer portals"};
+  const titles={dashboard:"Dashboard",orders:"Orders","order-detail":orderId||"Order detail",users:"User management",types:"Document & sources","country-doc-needs":"Country doc needs",integrations:"Integrations","kvk-search":"KVK Company Search","signature-rules":"Signature rules","customer-doc-rules":"Customer doc rules","customer-portals":"Customer portals"};
 
   return(
     <div className="dt-app">
@@ -2969,7 +2994,7 @@ function App(){
           <div style={{display:"flex",gap:8}}>
             {view==="orders"&&canEdit(user.role)&&<button onClick={()=>setModal("order")} style={{display:"flex",alignItems:"center",gap:5,fontSize:13}}><i className="ti ti-plus"/>New order</button>}
             {view==="users"&&canAdmin(user.role)&&<button onClick={()=>setModal("user")} style={{display:"flex",alignItems:"center",gap:5,fontSize:13}}><i className="ti ti-plus"/>New user</button>}
-            {view==="types"&&canAdmin(user.role)&&<button onClick={()=>setModal("type")} style={{display:"flex",alignItems:"center",gap:5,fontSize:13}}><i className="ti ti-plus"/>New type</button>}
+            {view==="types"&&canAdmin(user.role)&&<button onClick={()=>setModal("type")} style={{display:"flex",alignItems:"center",gap:5,fontSize:13}}><i className="ti ti-plus"/>New category</button>}
           </div>
         </div>
         <div className="dt-content">
@@ -2981,7 +3006,7 @@ function App(){
           {view==="integrations"&&<IntegrationsView/>}
           {view==="kvk-search"&&<KVKSearch/>}
           {view==="users"&&canAdmin(user.role)&&<UsersView users={users} onUpdate={(id,patch)=>{setUsers(p=>p.map(u=>u.id===id?{...u,...patch}:u));showToast("User updated");}}/>}
-          {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}}/>}
+          {view==="types"&&canAdmin(user.role)&&<TypesView orderTypes={orderTypes} onAddDoc={(tid,doc)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:[...ot.docs,{id:`${ot.id}d${ot.docs.length+1}`,...doc}]}:ot));showToast("Document added");}} onUpdateDoc={(tid,did,patch)=>{setOrderTypes(p=>p.map(ot=>ot.id===tid?{...ot,docs:ot.docs.map(d=>d.id===did?{...d,...patch}:d)}:ot));}}/>}
           {view==="country-doc-needs"&&canAdmin(user.role)&&<CountryDocNeedsView showToast={showToast}/>}
           {view==="signature-rules"&&canAdmin(user.role)&&<SignatureRulesView showToast={showToast}/>}
           {view==="customer-doc-rules"&&canAdmin(user.role)&&<CustomerDocRulesView showToast={showToast}/>}
