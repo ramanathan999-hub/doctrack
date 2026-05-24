@@ -1126,7 +1126,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
     setSigModal(null);
     setRequestingSig(item.id);
     try{
-      const res=await fetch('https://ramanathan999.app.n8n.cloud/webhook/request-signature',{
+      const res=await fetch('https://doctrack-n8n.duckdns.org/webhook/request-signature',{
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({item_id:item.id,order_number:order.order_number,destination_country:order.destination_country||''})
       });
@@ -2284,7 +2284,7 @@ function KVKSearch(){
     if(!q.trim())return;
     setLoading(true);setError(null);setResults(null);
     try{
-      const res=await fetch(`https://ramanathan999.app.n8n.cloud/webhook/kvk-search?naam=${encodeURIComponent(q.trim())}`);
+      const res=await fetch(`https://doctrack-n8n.duckdns.org/webhook/kvk-search?naam=${encodeURIComponent(q.trim())}`);
       if(!res.ok)throw new Error(`Server returned ${res.status}`);
       const data=await res.json();
       setResults(data);
