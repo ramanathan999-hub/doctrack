@@ -1387,7 +1387,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
       {activity.length>0&&(
         <div className="dt-card" style={{marginTop:14}}>
           <div className="dt-section-hdr">Activity log</div>
-          <div style={{padding:"14px 16px",maxHeight:224,overflowY:"auto"}}>
+          <div style={{padding:"6px 14px",maxHeight:180,overflowY:"auto"}}>
             {activity.map((a,i)=>{
               const META={
                 override:{icon:"ti-pencil",color:"#7c3aed"},
@@ -1398,25 +1398,17 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
               };
               const m=META[a.action]||{icon:"ti-circle",color:"#64748b"};
               const d=a.detail||{};
-              const desc=a.action==='override'?`${d.doc_type}: ${d.from} → ${d.to}${d.notes?` — "${d.notes}"`:''}${d.expiry?` · expires ${d.expiry}`:''}`:
+              const desc=a.action==='override'?`${d.doc_type}: ${d.from} → ${d.to}${d.notes?` "${d.notes}"`:''}`:
                          a.action==='upload'?`Uploaded ${d.doc_type}`:
                          a.action==='submit'?`Submitted ${d.doc_type}`:
-                         a.action==='order_status'?`Order status: ${d.from} → ${d.to}`:
-                         a.action==='signed'?`${d.doc_type} signed${d.signer?` by ${d.signer}`:''}`:
+                         a.action==='order_status'?`Status: ${d.from} → ${d.to}`:
+                         a.action==='signed'?`${d.doc_type} signed${d.signer?` · ${d.signer}`:''}`:
                          a.action;
               return(
-                <div key={a.id} style={{display:"flex",gap:12,alignItems:"flex-start",paddingBottom:i===activity.length-1?0:12,marginBottom:i===activity.length-1?0:12,borderBottom:i===activity.length-1?"none":"1px solid #f1f5f9"}}>
-                  <div style={{width:30,height:30,borderRadius:"50%",background:`${m.color}18`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
-                    <i className={`ti ${m.icon}`} style={{fontSize:13,color:m.color}}/>
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,color:"#1e293b"}}>{desc}</div>
-                    <div style={{fontSize:11,color:"#94a3b8",marginTop:2,display:"flex",gap:6}}>
-                      <span>{a.user_email||"system"}</span>
-                      <span>·</span>
-                      <span>{new Date(a.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
-                    </div>
-                  </div>
+                <div key={a.id} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 0",borderBottom:i===activity.length-1?"none":"1px solid #f8fafc",minWidth:0}}>
+                  <i className={`ti ${m.icon}`} style={{fontSize:11,color:m.color,flexShrink:0}}/>
+                  <span style={{fontSize:11,color:"#1e293b",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{desc}</span>
+                  <span style={{fontSize:10,color:"#94a3b8",flexShrink:0,whiteSpace:"nowrap"}}>{new Date(a.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
                 </div>
               );
             })}
