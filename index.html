@@ -908,6 +908,14 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
 
   useEffect(()=>{load();},[orderId]);
 
+  useEffect(()=>{
+    const channel=sb.channel('checklist-'+orderId)
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'checklist_items',filter:`order_number=eq.${orderId}`},
+        payload=>{setItems(prev=>prev.map(i=>i.id===payload.new.id?{...i,...payload.new}:i));})
+      .subscribe();
+    return()=>{sb.removeChannel(channel);};
+  },[orderId]);
+
   async function load(){
     setLoading(true);
     const{data:sbOrder}=await sb.from('orders').select('*').eq('order_number',orderId).maybeSingle();
