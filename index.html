@@ -911,7 +911,14 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
   useEffect(()=>{
     const channel=sb.channel('checklist-'+orderId)
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'checklist_items',filter:`order_number=eq.${orderId}`},
-        payload=>{setItems(prev=>prev.map(i=>i.id===payload.new.id?{...i,...payload.new}:i));})
+        async payload=>{
+          setItems(prev=>prev.map(i=>i.id===payload.new.id?{...i,...payload.new}:i));
+          if(payload.new.signature_status==='signed'&&payload.old?.signature_status!=='signed'){
+            await sb.from('order_activity').insert({order_number:orderId,user_email:'Dropbox Sign',action:'signed',detail:{doc_type:payload.new.document_type,signer:payload.new.signed_by}});
+            const{data:fresh}=await sb.from('order_activity').select('*').eq('order_number',orderId).order('created_at',{ascending:false}).limit(50);
+            if(fresh)setActivity(fresh);
+          }
+        })
       .subscribe();
     return()=>{sb.removeChannel(channel);};
   },[orderId]);
@@ -1260,51 +1267,6 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
           </div>
         </div>
       </div>
-      {!isSeed&&(
-        <div className="dt-card" style={{marginBottom:14}}>
-          <div className="dt-section-hdr" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>Freight &amp; costs</span>
-            {!ro&&<button onClick={()=>{setFreightEdit(p=>!p);}} style={{fontSize:11,padding:"3px 10px"}}>{freightEdit?"Cancel":"Edit"}</button>}
-          </div>
-          <div style={{padding:"14px 18px"}}>
-            {freightEdit?(
-              <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
-                {[["BUDGET (EUR)",freightBudget,setFreightBudget,120],["ACTUAL (EUR)",freightActual,setFreightActual,120],["TOLERANCE (%)",freightTolerance,v=>setFreightTolerance(parseInt(v)||10),70]].map(([lbl,val,setter,w])=>(
-                  <div key={lbl}>
-                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em",marginBottom:3}}>{lbl}</div>
-                    <input type="number" value={val} onChange={e=>setter(e.target.value)} style={{fontSize:12,padding:"5px 8px",width:w}}/>
-                  </div>
-                ))}
-                <button onClick={saveFreightCosts} disabled={savingFreight} className="dt-btn-primary" style={{fontSize:12,padding:"5px 14px"}}>{savingFreight?"Saving…":"Save"}</button>
-              </div>
-            ):(
-              <div style={{display:"flex",gap:28,flexWrap:"wrap",alignItems:"center"}}>
-                {[["BUDGET",order.freight_cost_budget],["ACTUAL",order.freight_cost_actual],["TOLERANCE",order.freight_cost_tolerance_pct!=null?`${order.freight_cost_tolerance_pct}%`:null]].map(([lbl,val])=>(
-                  <div key={lbl}>
-                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:600,letterSpacing:".05em",marginBottom:2}}>{lbl}</div>
-                    <div style={{fontSize:14,fontWeight:500,color:"#0f172a"}}>{val!=null&&val!==''?(lbl!=="TOLERANCE"?`EUR ${parseFloat(val).toLocaleString()}`:val):"—"}</div>
-                  </div>
-                ))}
-                {(()=>{
-                  const b=parseFloat(order.freight_cost_budget),a=parseFloat(order.freight_cost_actual);
-                  if(!b||!a)return<div style={{fontSize:12,color:"#94a3b8"}}>Enter budget and actual to see variance</div>;
-                  const tol=order.freight_cost_tolerance_pct||10;
-                  const pct=Math.abs((a-b)/b*100);const ok=pct<=tol;
-                  return(
-                    <div style={{padding:"8px 14px",borderRadius:8,background:ok?"#dcfce7":"#fee2e2",border:`1px solid ${ok?"#bbf7d0":"#fecaca"}`,display:"flex",alignItems:"center",gap:8}}>
-                      <i className={`ti ${ok?"ti-circle-check":"ti-alert-triangle"}`} style={{fontSize:18,color:ok?"#15803d":"#dc2626"}}/>
-                      <div>
-                        <div style={{fontSize:12,fontWeight:600,color:ok?"#15803d":"#dc2626"}}>{ok?`Within ${tol}% tolerance`:`${pct.toFixed(1)}% outside tolerance`}</div>
-                        <div style={{fontSize:11,color:ok?"#166534":"#b91c1c"}}>{a>b?"+":"−"}EUR {Math.abs(a-b).toLocaleString(undefined,{maximumFractionDigits:0})} vs budget</div>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       <div className="dt-card">
         <div className="dt-section-hdr">
@@ -1425,13 +1387,14 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
       {activity.length>0&&(
         <div className="dt-card" style={{marginTop:14}}>
           <div className="dt-section-hdr">Activity log</div>
-          <div style={{padding:"14px 16px"}}>
+          <div style={{padding:"14px 16px",maxHeight:224,overflowY:"auto"}}>
             {activity.map((a,i)=>{
               const META={
                 override:{icon:"ti-pencil",color:"#7c3aed"},
                 upload:  {icon:"ti-upload", color:"#16a34a"},
                 submit:  {icon:"ti-send",   color:"#2563eb"},
                 order_status:{icon:"ti-refresh",color:"#d97706"},
+                signed:  {icon:"ti-pen",    color:"#0369a1"},
               };
               const m=META[a.action]||{icon:"ti-circle",color:"#64748b"};
               const d=a.detail||{};
@@ -1439,6 +1402,7 @@ function OrderDetail({orderId,currentUser,onBack,showToast}){
                          a.action==='upload'?`Uploaded ${d.doc_type}`:
                          a.action==='submit'?`Submitted ${d.doc_type}`:
                          a.action==='order_status'?`Order status: ${d.from} → ${d.to}`:
+                         a.action==='signed'?`${d.doc_type} signed${d.signer?` by ${d.signer}`:''}`:
                          a.action;
               return(
                 <div key={a.id} style={{display:"flex",gap:12,alignItems:"flex-start",paddingBottom:i===activity.length-1?0:12,marginBottom:i===activity.length-1?0:12,borderBottom:i===activity.length-1?"none":"1px solid #f1f5f9"}}>
