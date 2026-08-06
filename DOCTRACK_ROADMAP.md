@@ -46,8 +46,9 @@ separation simultaneously.
 
 **Tasks**
 
-1. Move DocTrack production onto a dedicated host. Nothing else runs on it — no Code
-   Server, no unrelated web apps, no shared reverse proxy with other projects.
+1. ~~Move DocTrack production onto a dedicated host.~~ **Deferred until product
+   validation.** Cost is not justified before commercial traction. The shared-host risk
+   is accepted and logged here. Revisit when the first paying customer signs.
 2. Create a separate Supabase project for development. Seed it with synthetic data via a
    generator script. Production data must never be copied into it.
 3. Hetzner Cloud Firewall: default deny inbound, allow only 443 and WireGuard. SSH
